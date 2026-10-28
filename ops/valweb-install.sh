@@ -25,6 +25,11 @@ envq(){ local value=$1; [[ $value != *$'\n'* && $value != *$'\r'* ]] || die 'No 
 cleanup(){ [[ -z $TMP ]] || rm -rf -- "$TMP"; }
 trap cleanup EXIT
 userctl(){ local uid; uid=$(id -u valweb); runuser -u valweb -- env XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" systemctl --user "$@"; }
+run_as_valweb(){
+  local uid gid
+  uid=$(id -u valweb); gid=$(id -g valweb)
+  (cd "$RELEASE" && node --input-type=commonjs -e 'const fs=require("node:fs"),{spawnSync}=require("node:child_process"); const [config,uid,gid,cwd,command,...args]=process.argv.slice(1); let values; try{values=require("dotenv").parse(fs.readFileSync(config,"utf8"))}catch{console.error("No se pudo leer la configuración de Valweb");process.exit(78)} const env={...process.env,...values,HOME:"/opt/valweb",USER:"valweb",LOGNAME:"valweb"}; if(!env.DATABASE_URL?.trim()){console.error("DATABASE_URL está vacía en /etc/valweb/.env; corrígela antes de continuar");process.exit(78)} const result=spawnSync(command,args,{cwd,uid:Number(uid),gid:Number(gid),env,stdio:"inherit"}); if(result.error){console.error("No se pudo iniciar el comando de Valweb");process.exit(1)} process.exit(result.status??1)' "$CONFIG" "$uid" "$gid" "$RELEASE" "$@")
+}
 on_error(){ local code=$?; trap - ERR; if [[ -n $OLD_LINK ]]; then (( SWITCHED )) && ln -sfn "$OLD_LINK" "$APP/current"; if (( SERVICES_STOPPED )); then systemctl restart "$SERVICE" 2>/dev/null || true; userctl restart "$WORKER" 2>/dev/null || true; fi; fi; printf '\nERROR: Falló la línea %s (código %s). Se intentó volver al release anterior. Revisa el respaldo en %s; no se revierte automáticamente la base de datos.\n' "$1" "$code" "$BACKUPS" >&2; exit "$code"; }
 trap 'on_error "$LINENO"' ERR
 
@@ -212,13 +217,14 @@ if [[ $MODE != keep ]]; then
   ln -sfn "$CONFIG" "$RELEASE/.env"
   chown -R valweb:valweb "$RELEASE"
   su -s /bin/bash valweb -c "cd '$RELEASE' && npm ci --include=dev --no-audit --no-fund"
-  su -s /bin/bash valweb -c "cd '$RELEASE' && npx prisma generate && npm run build"
+  run_as_valweb npx prisma generate
+  run_as_valweb npm run build
   systemctl stop "$SERVICE" 2>/dev/null || true
   userctl stop "$WORKER" 2>/dev/null || true
   SERVICES_STOPPED=1
-  su -s /bin/bash valweb -c "cd '$RELEASE' && npx prisma migrate deploy"
+  run_as_valweb npx prisma migrate deploy
   if grep -q '^ADMIN_PASSWORD=' "$CONFIG"; then
-    su -s /bin/bash valweb -c "cd '$RELEASE' && node --import tsx scripts/seed-admin.ts"
+    run_as_valweb node --import tsx scripts/seed-admin.ts
     sed -i '/^ADMIN_PASSWORD=/d' "$CONFIG"
   fi
   ln -sfn "$RELEASE" "$APP/current.new"
