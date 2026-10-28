@@ -17,6 +17,7 @@ TMP=""
 OLD_LINK=""
 SWITCHED=0
 SERVICES_STOPPED=0
+URL_CHANGED=0
 VALWEB_HOME=""
 VALWEB_GROUP=""
 say(){ printf '\n\033[1;36mValweb\033[0m %s\n' "$*"; }
@@ -33,6 +34,8 @@ die(){ printf '\nERROR: %s\n' "$*" >&2; recover; exit 1; }
 ask(){ local prompt=$1 default=$2 value; read -r -p "$prompt [$default]: " value; printf '%s' "${value:-$default}"; }
 yesno(){ local prompt=$1 answer; read -r -p "$prompt [s/N]: " answer; [[ $answer =~ ^[sS]$ ]]; }
 envq(){ local value=$1; [[ $value != *$'\n'* && $value != *$'\r'* ]] || die 'No se admiten saltos de línea en variables de entorno.'; value=${value//\\/\\\\}; value=${value//\"/\\\"}; printf '"%s"' "$value"; }
+valid_url(){ [[ $1 =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?$ ]]; }
+getenv(){ sed -n "s/^$1=//p" "$CONFIG" | tail -n1 | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"; }
 cleanup(){ [[ -z $TMP ]] || rm -rf -- "$TMP"; }
 trap cleanup EXIT
 userctl(){ local uid; uid=$(id -u valweb); runuser -u valweb -- env HOME="$VALWEB_HOME" XDG_CONFIG_HOME="$VALWEB_HOME/.config" XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" systemctl --user "$@"; }
@@ -72,7 +75,7 @@ check(){
 }
 
 [[ ${1:-} == --help || ${1:-} == -h ]] && { usage; exit 0; }
-[[ ${1:-} == --check ]] && { bash -n "$0" && [[ $(envq 'a b#$x"') == '"a b#$x\""' ]] && printf 'Sintaxis y codificación de entorno correctas.\n'; exit; }
+[[ ${1:-} == --check ]] && { bash -n "$0" && [[ $(envq 'a b#$x"') == '"a b#$x\""' ]] && valid_url 'https://val-web.computerform.com.mx' && ! valid_url 'https://example.test/path' && printf 'Sintaxis y validaciones correctas.\n'; exit; }
 [[ $# -eq 0 ]] || { usage >&2; exit 2; }
 check
 
@@ -193,7 +196,7 @@ if [[ ! -f $CONFIG ]]; then
   ADMIN_NAME=$(ask 'Nombre del administrador inicial' 'Administrador')
   read -r -s -p 'Contraseña inicial (mínimo 12 caracteres): ' ADMIN_PASSWORD; printf '\n'
   (( ${#ADMIN_PASSWORD} >= 12 && ${#ADMIN_PASSWORD} <= 128 )) || die 'Contraseña debe tener entre 12 y 128 caracteres.'
-  [[ $PUBLIC_URL =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?$ ]] || die 'La URL pública debe ser http(s)://dominio o IP, sin ruta.'
+  valid_url "$PUBLIC_URL" || die 'La URL pública debe ser http(s)://dominio o IP, sin ruta.'
   [[ $TZ =~ ^[A-Za-z0-9_+/-]+$ ]] && node -e 'try{new Intl.DateTimeFormat("en",{timeZone:process.argv[1]})}catch{process.exit(1)}' "$TZ" || die 'Zona horaria inválida.'
   [[ $SMTP_PORT =~ ^(465|587)$ ]] || die 'Usa el puerto SMTP 465 o 587.'
   [[ $APP_PORT != "$SMTP_PORT" ]] || die 'El puerto de Valweb debe ser distinto al puerto SMTP.'
@@ -227,13 +230,20 @@ else
   chown "root:$VALWEB_GROUP" "$CONFIG"
   say "Se preserva configuración existente: $CONFIG"
   grep -q '^DATABASE_URL=' "$CONFIG" || die 'Falta DATABASE_URL; corrige la configuración sin reemplazarla.'
+  CURRENT_URL=$(getenv NEXTAUTH_URL)
+  [[ -n $CURRENT_URL ]] || die 'Falta NEXTAUTH_URL; corrige la configuración antes de continuar.'
+  PUBLIC_URL=$(ask 'URL pública de Valweb' "$CURRENT_URL")
+  valid_url "$PUBLIC_URL" || die 'La URL pública debe ser http(s)://dominio o IP, sin ruta.'
+  if [[ $PUBLIC_URL != "$CURRENT_URL" ]]; then
+    sed -i "s|^NEXTAUTH_URL=.*|NEXTAUTH_URL=$(envq "$PUBLIC_URL")|" "$CONFIG"
+    URL_CHANGED=1
+  fi
   for entry in 'APP_PORT=3000' 'TZ=America/Mexico_City' "IMAGE_STORAGE_DIR=$DATA/images" "IMPORT_STORAGE_DIR=$DATA/imports" 'MAX_ZIP_BYTES=53687091200' 'MAX_EXPANDED_BYTES=107374182400' 'TRUST_PROXY=true'; do
     key=${entry%%=*}; grep -q "^$key=" "$CONFIG" || printf '%s\n' "$entry" >> "$CONFIG"
   done
 fi
 
 # Do not source .env: it contains secrets and is dotenv syntax, not shell code.
-getenv(){ sed -n "s/^$1=//p" "$CONFIG" | tail -n1 | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"; }
 PORT=$(getenv APP_PORT); PORT=${PORT:-3000}
 install -d -o valweb -g valweb "$DATA/images" "$DATA/imports"
 
@@ -330,6 +340,7 @@ server {
 }
 EOF
 ln -sfn /etc/nginx/sites-available/valweb /etc/nginx/sites-enabled/valweb
+[[ ! -L /etc/nginx/sites-enabled/default ]] || rm -f /etc/nginx/sites-enabled/default
 chmod 644 /etc/nginx/sites-available/valweb
 nginx -t
 systemctl daemon-reload
@@ -341,7 +352,7 @@ userctl enable --now "$WORKER"
 userctl is-active --quiet "$WORKER" || die 'El worker de importaciones no pudo iniciar.'
 systemctl enable --now nginx
 systemctl reload nginx
-systemctl enable --now "$SERVICE"
+if (( URL_CHANGED )); then systemctl restart "$SERVICE"; else systemctl enable --now "$SERVICE"; fi
 
 if [[ -n ${ADMIN_EMAIL:-} ]]; then unset ADMIN_EMAIL ADMIN_NAME ADMIN_PASSWORD; fi
 for attempt in {1..30}; do curl -fsS --max-time 3 "http://127.0.0.1:$PORT/login" >/dev/null 2>&1 && break; sleep 2; done
