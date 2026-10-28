@@ -8,6 +8,17 @@ SaaS multiusuario de validaciones web de **Computer Forms**. Incluye identidad, 
 - PostgreSQL 18, una base de desarrollo y otra desechable llamada `valweb_test` para pruebas.
 - Un buzón autorizado para enviar correos de invitación y recuperación.
 - Para pruebas locales de archivos: Python3 y el ejecutable `zip`.
+- `curl` y acceso a Internet para descargar el instalador del LXC.
+
+## Instalación en LXC (beta)
+
+El instalador configura Valweb dentro de un contenedor LXC existente; no crea contenedores. Requiere Debian 12/13 o Ubuntu 24.04 con systemd, acceso a Internet y permisos de root. Instala la beta `v0.1.0-beta.1` desde este [script raw](https://raw.githubusercontent.com/overhang1275/SaaS-Valweb/v0.1.0-beta.1/ops/valweb-install.sh):
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/overhang1275/SaaS-Valweb/v0.1.0-beta.1/ops/valweb-install.sh)"
+```
+
+El asistente permite actualizar paquetes, elegir una release o un commit, configurar la aplicación y respaldar datos antes de actualizar. Los archivos se guardan en `/opt/valweb`, la configuración en `/etc/valweb/.env` y los datos en `/var/lib/valweb`. La beta necesita un proxy TLS externo para servir HTTPS. Conserva los respaldos: las migraciones de base de datos no se revierten automáticamente.
 
 ## Desarrollo
 
@@ -125,7 +136,7 @@ La identidad usa el logo oficial local y los colores corporativos navy/rojo/amar
 
 El dashboard muestra validaciones y conteos reales. Las listas permiten buscar nombre/título y filtrar estado. La navegación móvil usa un panel lateral accesible; las confirmaciones importantes se muestran en un diálogo con Cancelar/Confirmar y cierre por Escape. Los detalles técnicos e historial son desplegables. Hay ayudas contextuales, skeletons por tipo de ruta, estados de consulta/imagen y reintentos. Las animaciones respetan `prefers-reduced-motion`.
 
-Especificación y ejemplos: `DESIGN.md`. Auditoría, prioridades, arquitectura y recomendaciones: `docs/design-audit/premium-delivery.md`. Revisión independiente de design-auditor: `docs/design-audit/latest.md`. Awesome Design MD quedó registrado como referencia permanente del agente en `.codex/agents/desig-auditor.toml`.
+Especificación y ejemplos: `DESIGN.md`.
 
 ## Verificación
 
@@ -160,13 +171,7 @@ Clientes y Usuarios buscan/filtran en PostgreSQL y muestran 25 o 50 filas por p�
 
 La consulta pública limita300 solicitudes/minuto globales y30 por validación/IP. Sin `TRUST_PROXY=true` utiliza un bucket compartido por validación. Actívalo únicamente detrás de un proxy confiable que reemplace `X-Forwarded-For`; bloquear acceso directo al servidor evita encabezados falsificados. Las rutas de importación verifican sesión, propiedad y origen, y limitan el cuerpo de comandos. Nunca expongas los volúmenes privados como directorios estáticos.
 
-El recorrido `npm run test:e2e:bulk` requiere `npm run dev:test` y `npm run worker:test`. Comprueba una carga completa real de1,000 imágenes, CSV, mapeo, publicación, activación, consulta por alfanumérico, ocultamiento de campos y catálogo paginado. Ejecuta las pruebas de navegador de una en una y después de integración. La suite también procesa50,000 filas CSV y revisa un manifiesto ZIP de50,000 nombres; eso **no es un benchmark de decodificación de50,000 imágenes reales**. Evidencia actual: `docs/design-audit/bulk-alfanum.md`.
-
-Evidencia visual histórica: `docs/design-audit/latest.md`. Revisión de seguridad: `docs/reviews/phase-1-security.md`. Diseño y plan: `docs/superpowers/`.
-
-Fase2: `docs/design-audit/phase-2.md` y `docs/reviews/phase-2-security.md`.
-
-Cierre imágenes/estados: `docs/design-audit/phase-2-images.md` y `docs/reviews/phase-2-images-security.md`.
+El recorrido `npm run test:e2e:bulk` requiere `npm run dev:test` y `npm run worker:test`. Comprueba una carga completa real de1,000 imágenes, CSV, mapeo, publicación, activación, consulta por alfanumérico, ocultamiento de campos y catálogo paginado. Ejecuta las pruebas de navegador de una en una y después de integración. La suite también procesa50,000 filas CSV y revisa un manifiesto ZIP de50,000 nombres; eso **no es un benchmark de decodificación de50,000 imágenes reales**.
 
 ## Verificación del rediseño en producción local
 
@@ -186,7 +191,7 @@ npm run test:e2e:premium
 
 `start:test` usa3001; detén `dev:test` antes de arrancarlo. Los comandos build/start de prueba fuerzan la base desechable y volúmenes separados. `test:e2e:premium` comprueba tabs/URL/historial/teclado, conservación de entradas y archivo, ayuda, confirmación cancelada, navegación móvil, cuatro anchos, reduced-motion y skeleton/errores/reintentos de consulta e imagen. Los fallos de red son interceptados solo por el navegador de pruebas. Los screenshots quedan en `output/playwright/premium-*`.
 
-Se usa producción local para aislar una excepción de medición de rendimiento que Next/React puede emitir en desarrollo al resolver redirects/notFound; no se filtran esos errores para aprobar los tests. La incidencia upstream y el alcance están en `docs/design-audit/premium-delivery.md`.
+Se usa producción local para aislar una excepción de medición de rendimiento que Next/React puede emitir en desarrollo al resolver redirects/notFound; no se filtran esos errores para aprobar los tests.
 
 Verificación final del rediseño:52/52 pruebas, TypeScript, ESLint y build de producción aprobados. Los cuatro recorridos de navegador (identidad, validaciones, carga1000 imágenes y premium) pasan contra producción local de prueba. No se probaron Safari ni lectores de pantalla físicos; los límites de medición/entorno se documentan en el informe.
 
@@ -198,12 +203,10 @@ Entrega: `POST /api/public/images` con JSON `{ "grant": "…" }`, cookie `valweb
 
 **Esto controla el acceso, no evita toda copia.** Un navegador autorizado recibe los píxeles y puede capturarlos o extraerlos con sus herramientas. Canvas y bloquear el menú contextual dentro del visor no son DRM; no se afirma que reproduzca el mecanismo interno de Instagram. La revocación bloquea nuevas entregas, no borra datos ya recibidos por un visitante. Los resultados abiertos antes del cambio deben consultar el código otra vez para obtener el grant nuevo.
 
-Diseño y límites: `docs/superpowers/specs/2026-10-27-document-viewer.md`. Evidencia de seguridad y pruebas: `docs/reviews/document-viewer.md`.
-
 ## PWA de cada enlace público
 
 Cada `/v/<uuid>` activo puede instalarse como acceso independiente: manifest propio, nombre del título público, iconos de Computer Forms y apertura standalone directamente en esa validación. En navegadores compatibles aparece **Instalar consulta** cuando el navegador habilita el diálogo; la ayuda indica el menú de instalación y Compartir/Añadir a pantalla de inicio en iPhone/iPad.
 
 La PWA necesita HTTPS fuera de localhost. El service worker solo controla `/v/` y las navegaciones de consultas públicas. No usa CacheStorage ni guarda resultados, códigos, grants o imágenes para consulta offline. Sin conexión muestra una página genérica de recuperación; siempre se necesita red para validar códigos y obtener documentos. No controla el login ni el panel. Desactivar la validación impide obtener su manifest y nuevas consultas, aunque el acceso directo instalado pueda seguir en el dispositivo.
 
-Verifica con `npm run test:e2e:pwa` contra `start:test`, después de integración y de uno en uno con los demás E2E. Se comprueban identidades por enlace, metadatos/iconos, scope, elegibilidad Chromium, offline sin resultados/caché, recuperación y revocación. No se afirma instalación física iOS/Android desde el navegador headless. Diseño: `docs/superpowers/specs/2026-10-27-public-pwa.md`.
+Verifica con `npm run test:e2e:pwa` contra `start:test`, después de integración y de uno en uno con los demás E2E. Se comprueban identidades por enlace, metadatos/iconos, scope, elegibilidad Chromium, offline sin resultados/caché, recuperación y revocación. No se afirma instalación física iOS/Android desde el navegador headless.
