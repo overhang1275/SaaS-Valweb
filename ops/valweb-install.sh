@@ -339,7 +339,9 @@ WORKER_FRAGMENT=$(userctl show -p FragmentPath --value "$WORKER")
 [[ $WORKER_FRAGMENT == "$VALWEB_HOME/.config/systemd/user/$WORKER.service" ]] || die 'systemd no está cargando la unidad del worker desde el perfil de valweb.'
 userctl enable --now "$WORKER"
 userctl is-active --quiet "$WORKER" || die 'El worker de importaciones no pudo iniciar.'
-systemctl enable --now nginx "$SERVICE"
+systemctl enable --now nginx
+systemctl reload nginx
+systemctl enable --now "$SERVICE"
 
 if [[ -n ${ADMIN_EMAIL:-} ]]; then unset ADMIN_EMAIL ADMIN_NAME ADMIN_PASSWORD; fi
 for attempt in {1..30}; do curl -fsS --max-time 3 "http://127.0.0.1:$PORT/login" >/dev/null 2>&1 && break; sleep 2; done
