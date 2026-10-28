@@ -1,0 +1,16 @@
+[Unit]
+Description=Valweb import processor
+After=network.target
+
+[Service]
+Type=exec
+WorkingDirectory=%h/Documentos/Dev/SaaS-Valweb
+ExecStart=/usr/bin/node --import tsx scripts/import-worker.ts
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=infinity
+UMask=0077
+
+[Install]
+WantedBy=default.target

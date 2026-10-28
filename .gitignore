@@ -1,0 +1,59 @@
+# Dependencies and generated build files
+node_modules/
+/.next/
+/.next-test/
+/out/
+/dist/
+/build/
+/src/generated/
+/next-env.d.ts
+*.tsbuildinfo
+
+# Local credentials; keep only the sanitized setup template
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+/.aws/
+
+# Private uploads, local databases and backups
+/var/
+/uploads/
+/storage/
+/backups/
+/dumps/
+*.dump
+*.backup
+*.sqlite
+*.sqlite3
+*.db
+/*.sql
+
+# Test output, session reports and downloaded references
+/coverage/
+/test-results/
+/playwright-report/
+/blob-report/
+/output/
+/docs/
+/design-resources/
+*.log
+
+# Local assistant, browser and editor state
+/.codex/
+/.agents/
+/.superpowers/
+/.taste-skill/
+/.playwright-cli/
+/graphify-out/
+/.cache/
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo

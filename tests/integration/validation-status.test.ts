@@ -1,0 +1,76 @@
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+vi.hoisted(() => {
+  const url = process.env.TEST_DATABASE_URL;
+  if (!url || !new URL(url).pathname.endsWith('/valweb_test')) throw new Error('TEST_DATABASE_URL must point to valweb_test');
+  process.env.DATABASE_URL = url;
+});
+vi.mock('../../src/features/images/storage', () => ({ removeImageFile: vi.fn().mockResolvedValue(undefined) }));
+import { randomUUID } from 'node:crypto';
+import { prisma } from '../../src/lib/prisma';
+import type { Actor } from '../../src/features/identity/service';
+import { createValidation, updateValidation, deleteValidation, listValidations, getValidationReadiness, setValidationStatus } from '../../src/features/validations/service';
+const tenantId = randomUUID(), otherTenantId = randomUUID(), userId = randomUUID(), adminId = randomUUID();
+const actor: Actor = { id: userId, role: 'CLIENT', tenantId, sessionVersion: 0 };
+const admin: Actor = { id: adminId, role: 'ADMIN', tenantId: null, sessionVersion: 0 };
+const text = { imageMode: 'SHARED' as const, name: 'Status test', title: 'Title', instructions: '', successMessage: 'Yes', errorMessage: 'No' };
+let rowId: string;
+beforeAll(async () => {
+  await prisma.tenant.createMany({ data: [{ id: tenantId, name: 'Status first' }, { id: otherTenantId, name: 'Status second' }] });
+  await prisma.user.createMany({ data: [{ id: userId, email: `${userId}@example.test`, name: 'Status', role: 'CLIENT', status: 'ACTIVE', tenantId, passwordHash: 'unused-test-hash' }, { id: adminId, email: `${adminId}@example.test`, name: 'Admin', role: 'ADMIN', status: 'ACTIVE', passwordHash: 'unused-test-hash' }] });
+});
+afterAll(async () => {
+  await prisma.validation.updateMany({ where: { tenantId: { in: [tenantId, otherTenantId] } }, data: { activeDatasetId: null } });
+  await prisma.folio.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } });
+  await prisma.dataset.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } });
+  await prisma.validation.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } });
+  await prisma.auditLog.deleteMany({ where: { actorId: { in: [userId, adminId] } } });
+  await prisma.user.deleteMany({ where: { id: { in: [userId, adminId] } } });
+  await prisma.tenant.deleteMany({ where: { id: { in: [tenantId, otherTenantId] } } });
+  await prisma.$disconnect();
+});
+it('requires image and actual folios in the selected published dataset', async () => {
+  const row = await createValidation(actor, text); rowId = row.id;
+  expect(await getValidationReadiness(actor, row.id)).toEqual(expect.objectContaining({ hasImage: false, hasFolios: false, tenantActive: true, canActivate: false }));
+  await expect(setValidationStatus(actor, row.id, 'ACTIVE')).rejects.toThrow();
+  await prisma.validation.update({ where: { id: row.id }, data: { imageKey: `${randomUUID()}.webp` } });
+  await expect(setValidationStatus(actor, row.id, 'ACTIVE')).rejects.toThrow();
+  const dataset = await prisma.dataset.create({ data: { tenantId, validationId: row.id, recordCount: 999n } });
+  await prisma.validation.update({ where: { id: row.id }, data: { activeDatasetId: dataset.id } });
+  await prisma.folio.create({ data: { tenantId, validationId: row.id, datasetId: dataset.id, folio: 'A1', alfanum: 'A1', alfanumNormalized: 'A1' } });
+  expect((await getValidationReadiness(actor, row.id))?.hasFolios).toBe(false);
+  await expect(setValidationStatus(actor, row.id, 'ACTIVE')).rejects.toThrow();
+  await prisma.dataset.update({ where: { id: dataset.id }, data: { status: 'PUBLISHED', recordCount: 0n, publishedAt: new Date() } });
+  expect((await getValidationReadiness(actor, row.id))?.canActivate).toBe(true);
+  expect((await setValidationStatus(actor, row.id, 'ACTIVE')).status).toBe('ACTIVE');
+  await prisma.folio.deleteMany({ where: { datasetId: dataset.id } });
+  expect((await getValidationReadiness(actor, row.id))?.hasFolios).toBe(false);
+  expect((await setValidationStatus(actor, row.id, 'INACTIVE')).status).toBe('INACTIVE');
+  await expect(setValidationStatus(actor, row.id, 'ACTIVE')).rejects.toThrow();
+  expect((await updateValidation(actor, row.id, { ...text, imageAlt: 'Descriptive image' })).imageAlt).toBe('Descriptive image');
+  expect((await listValidations(actor)).some(x => x.id === row.id)).toBe(true);
+  expect(await prisma.auditLog.count({ where: { targetId: row.id, action: 'VALIDATION_ACTIVE', tenantId } })).toBe(1);
+});
+it('enforces composite dataset and folio ownership in the database', async () => {
+  const foreign = await createValidation(admin, { ...text, tenantId: otherTenantId });
+  const dataset = await prisma.dataset.create({ data: { tenantId: otherTenantId, validationId: foreign.id } });
+  await expect(prisma.validation.update({ where: { id: rowId }, data: { activeDatasetId: dataset.id } })).rejects.toThrow();
+  await expect(prisma.folio.create({ data: { tenantId, validationId: rowId, datasetId: dataset.id, folio: 'X', alfanum: 'X', alfanumNormalized: 'X' } })).rejects.toThrow();
+  const forged: Actor = { ...actor, tenantId: otherTenantId, role: 'ADMIN' };
+  expect(await getValidationReadiness(forged, foreign.id)).toBeNull();
+  await expect(setValidationStatus(forged, foreign.id, 'INACTIVE')).rejects.toThrow('La validación no está disponible.');
+});
+it('revalidates session and tenant and prevents activation in suspended accounts', async () => {
+  await prisma.user.update({ where: { id: userId }, data: { sessionVersion: 1 } });
+  await expect(setValidationStatus(actor, rowId, 'INACTIVE')).rejects.toThrow();
+  await prisma.user.update({ where: { id: userId }, data: { sessionVersion: 0 } });
+  await prisma.tenant.update({ where: { id: tenantId }, data: { status: 'SUSPENDED' } });
+  await expect(getValidationReadiness(actor, rowId)).rejects.toThrow();
+  expect((await getValidationReadiness(admin, rowId))?.tenantActive).toBe(false);
+  await expect(setValidationStatus(admin, rowId, 'ACTIVE')).rejects.toThrow();
+  expect((await setValidationStatus(admin, rowId, 'INACTIVE')).status).toBe('INACTIVE');
+  await prisma.tenant.update({ where: { id: tenantId }, data: { status: 'ACTIVE' } });
+  await deleteValidation(actor, rowId);
+  expect(await getValidationReadiness(actor, rowId)).toBeNull();
+  await expect(setValidationStatus(actor, rowId, 'INACTIVE')).rejects.toThrow();
+  expect((await prisma.validation.findUniqueOrThrow({ where: { id: rowId } })).imageKey).toBeNull();
+});

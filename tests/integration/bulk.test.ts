@@ -1,0 +1,182 @@
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
+vi.hoisted(() => {
+  if (!process.env.TEST_DATABASE_URL || new URL(process.env.TEST_DATABASE_URL).pathname !== "/valweb_test") throw new Error("Use valweb_test");
+  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+});
+vi.mock("../../src/features/imports/queue", () => ({ enqueueImport: vi.fn() }));
+import { randomUUID } from "node:crypto";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import sharp from "sharp";
+import { prisma } from "../../src/lib/prisma";
+import { createValidation, getValidationReadiness, setValidationStatus } from "../../src/features/validations/service";
+import { configureImport, publishCsv, retryImport, getImport, cancelImport } from "../../src/features/imports/service";
+import { processImport } from "../../src/features/imports/runner";
+import { sourcePath } from "../../src/features/imports/files";
+import { verifyAlfanum, publicImage, getPublicValidation } from "../../src/features/public/service";
+import { updatePublicSettings } from "../../src/features/records/settings";
+import { readImageFile } from "../../src/features/images/storage";
+import type { Actor } from "../../src/features/identity/service";
+
+const tenantId = randomUUID(), userId = randomUUID(), foreignTenant = randomUUID(), foreignUser = randomUUID();
+const viewer = "a".repeat(64);
+const actor: Actor = { id: userId, role: "CLIENT", tenantId, sessionVersion: 0 };
+const foreign: Actor = { id: foreignUser, role: "CLIENT", tenantId: foreignTenant, sessionVersion: 0 };
+const texts = { name: "Bulk validation", title: "Consulta", instructions: "Introduce alfanum", successMessage: "Encontrado", errorMessage: "No existe" };
+let directory: string, validationId: string, token: string;
+beforeAll(async () => {
+  directory = await mkdtemp(join(tmpdir(), "valweb-bulk-test-"));
+  vi.stubEnv("IMAGE_STORAGE_DIR", join(directory, "images")); vi.stubEnv("IMPORT_STORAGE_DIR", join(directory, "imports"));
+  await mkdir(join(directory, "imports"), { recursive: true });
+  await prisma.tenant.createMany({ data: [{ id: tenantId, name: "Bulk first" }, { id: foreignTenant, name: "Other" }] });
+  await prisma.user.createMany({ data: [{ id: userId, email: `${userId}@example.test`, name: "Bulk", role: "CLIENT", status: "ACTIVE", tenantId, passwordHash: "unused-test-hash" }, { id: foreignUser, email: `${foreignUser}@example.test`, name: "Foreign", role: "CLIENT", status: "ACTIVE", tenantId: foreignTenant, passwordHash: "unused-test-hash" }] });
+  const validation = await createValidation(actor, texts); validationId = validation.id; token = validation.publicToken;
+});
+afterAll(async () => {
+  const where = { tenantId: { in: [tenantId, foreignTenant] } };
+  await prisma.validationDailyStat.deleteMany({ where });
+  await prisma.importJob.deleteMany({ where });
+  await prisma.recordImage.deleteMany({ where });
+  await prisma.validation.updateMany({ where, data: { activeDatasetId: null } });
+  await prisma.folio.deleteMany({ where }); await prisma.dataset.deleteMany({ where }); await prisma.validation.deleteMany({ where });
+  await prisma.auditLog.deleteMany({ where: { actorId: { in: [userId, foreignUser] } } });
+  await prisma.user.deleteMany({ where: { id: { in: [userId, foreignUser] } } }); await prisma.tenant.deleteMany({ where: { id: { in: [tenantId, foreignTenant] } } });
+  await prisma.$disconnect(); vi.unstubAllEnvs(); await rm(directory, { recursive: true, force: true });
+});
+async function csvJob(text: string, mode: "REPLACE" | "UPSERT" = "REPLACE") {
+  const key = `${randomUUID()}.csv`; await writeFile(sourcePath(key), text);
+  const job = await prisma.importJob.create({ data: { tenantId, validationId, requestedById: userId, kind: "CSV", sourceKey: key, originalName: "records.csv" } });
+  await processImport(job.id);
+  expect((await getImport(actor, job.id)).status).toBe("REVIEW");
+  await configureImport(actor, job.id, { mapping: { folio: "folio", alfanum: "alfanum", tipo: "tipo", otro: "tro" }, mode });
+  await processImport(job.id);
+  return getImport(actor, job.id);
+}
+it("maps CSV independently: search4frs5 returns folio0001, type and other", async () => {
+  const job = await csvJob("folio,alfanum,tipo,tro\n0001,4frs5,Diploma,Privado\n0002,7ttt8,Constancia,Oculto\n");
+  expect(job.phase).toBe("Revisa y publica la nueva base");
+  expect(job.candidateDatasetId).not.toBeNull();
+  const record = await prisma.folio.findUniqueOrThrow({ where: { datasetId_alfanumNormalized: { datasetId: job.candidateDatasetId!, alfanumNormalized: "4FRS5" } } });
+  expect(record.folio).toBe("0001"); expect(record.alfanum).toBe("4frs5"); expect(record.otro).toBe("Privado");
+  await publishCsv(actor, job.id);
+  expect((await getValidationReadiness(actor, validationId))?.missingImages).toBe(2);
+  await expect(setValidationStatus(actor, validationId, "ACTIVE")).rejects.toThrow();
+});
+it("processes ZIP images and resolves by alfanum, not by displayed folio", async () => {
+  const files = join(directory, "zip-source"); await mkdir(files);
+  const png = await sharp({ create: { width: 80, height: 40, channels: 3, background: "#b8336a" } }).png().toBuffer();
+  await writeFile(join(files, "4frs5.png"), png); await writeFile(join(files, "7ttt8.png"), png);
+  const key = `${randomUUID()}.zip`; execFileSync("zip", ["-q", sourcePath(key), "4frs5.png", "7ttt8.png"], { cwd: files });
+  const job = await prisma.importJob.create({ data: { tenantId, validationId, requestedById: userId, kind: "IMAGES", sourceKey: key, originalName: "images.zip" } });
+  await processImport(job.id);
+  expect((await getImport(actor, job.id)).status).toBe("COMPLETED");
+  expect((await getValidationReadiness(actor, validationId))?.canActivate).toBe(true);
+  await setValidationStatus(actor, validationId, "ACTIVE");
+  const result = await verifyAlfanum(token, "4frs5", viewer);
+  expect(result?.found).toBe(true);
+  if (!result?.found) throw new Error("Expected result");
+  expect(result.fields).toContainEqual({ label: "Folio", value: "0001" });
+  expect(result.fields).toContainEqual({ label: "Tipo de documento", value: "Diploma" });
+  expect(result.fields).toContainEqual({ label: "Otros", value: "Privado" });
+  expect(result.image).not.toBeNull();
+  const image = await prisma.recordImage.findUniqueOrThrow({ where: { tenantId_validationId_alfanumNormalized: { tenantId, validationId, alfanumNormalized: "4FRS5" } } });
+  const grant = result.image!.grant;
+  expect(result.image).not.toHaveProperty("url");
+  expect(await publicImage(grant, viewer)).toEqual(await readImageFile(image.storageKey));
+  expect(await publicImage(`${grant}tampered`, viewer)).toBeNull();
+  expect(await publicImage(grant, "b".repeat(64))).toBeNull();
+  expect(await publicImage(grant, "")).toBeNull();
+  expect(await verifyAlfanum(token, "0001", viewer)).toMatchObject({ found: false });
+  await expect(getImport(foreign, job.id)).rejects.toThrow();
+  await retryImport(actor, job.id).then(() => { throw new Error("Unexpected retry"); }, () => {});
+});
+it("omits hidden fields server-side, hides images and revokes grants when deactivated", async () => {
+  const original = await verifyAlfanum(token, "4frs5", viewer);
+  if (!original?.found || !original.image) throw new Error("Expected image");
+  await updatePublicSettings(actor, validationId, { imageMode: "PER_RECORD", showFolio: true, showAlfanum: false, showTipo: false, showOtro: false, showImage: false });
+  expect(await getPublicValidation(token)).toBeNull();
+  expect(await publicImage(original.image.grant, viewer)).toBeNull();
+  await setValidationStatus(actor, validationId, "ACTIVE");
+  const result = await verifyAlfanum(token, "4FRS5", viewer);
+  if (!result?.found) throw new Error("Expected found");
+  expect(result.fields).toEqual([{ label: "Folio", value: "0001" }]);
+  expect(result.image).toBeNull(); expect(JSON.stringify(result)).not.toContain("Privado");
+});
+it("reports duplicates and invalid alfanum without replacing the active base", async () => {
+  const before = await prisma.validation.findUniqueOrThrow({ where: { id: validationId } });
+  const job = await csvJob("folio,alfanum,tipo,tro\n0001,aa1,X,Y\n0002,AA1,X,Y\n0003,bad-code,X,Y\n");
+  expect(job.candidateDatasetId).toBeNull();
+  expect(job.summary).toMatchObject({ duplicateGroups: 1, invalidRows: 1 });
+  await expect(publishCsv(actor, job.id)).rejects.toThrow();
+  expect((await prisma.validation.findUniqueOrThrow({ where: { id: validationId } })).activeDatasetId).toBe(before.activeDatasetId);
+});
+it("loads50000 CSV rows through DuckDB and COPY without per-row ORM inserts", async () => {
+  const job = await csvJob("folio,alfanum,tipo,tro\n" + Array.from({ length: 50000 }, (_, i) => `${String(i).padStart(6, "0")},CODE${i},Diploma,Otro\n`).join(""));
+  expect(job.candidateDatasetId).not.toBeNull();
+  expect(await prisma.folio.count({ where: { datasetId: job.candidateDatasetId! } })).toBe(50000);
+  expect(job.summary).toMatchObject({ records: 50000 });
+});
+it("upserts by alfanum and preserves records absent from the incoming CSV", async () => {
+  const before = await prisma.validation.findUniqueOrThrow({ where: { id: validationId } });
+  const previousCount = await prisma.folio.count({ where: { datasetId: before.activeDatasetId! } });
+  const existed = await prisma.folio.count({ where: { datasetId: before.activeDatasetId!, alfanumNormalized: "4FRS5" } });
+  const job = await csvJob("folio,alfanum,tipo,tro\n0099,4frs5,Actualizado,Nuevo\n0098,NEWCODE,Alta,Extra\n", "UPSERT");
+  expect(job.candidateDatasetId).not.toBeNull();
+  const records = await prisma.folio.findMany({ where: { datasetId: job.candidateDatasetId! } });
+  expect(records).toHaveLength(previousCount + (existed ? 1 : 2));
+  expect(records.find(row => row.alfanumNormalized === "4FRS5")?.folio).toBe("0099");
+  expect((await prisma.validation.findUniqueOrThrow({ where: { id: validationId } })).activeDatasetId).toBe(before.activeDatasetId);
+  await publishCsv(actor, job.id);
+});
+it("retries an image conflict using its staged file only after explicit replacement", async () => {
+  const old = await prisma.recordImage.findFirstOrThrow({ where: { validationId, alfanumNormalized: "4FRS5" } });
+  const key = `${randomUUID()}.png`;
+  await writeFile(sourcePath(key), await sharp({ create: { width: 32, height: 32, channels: 3, background: "#abcdef" } }).png().toBuffer());
+  const job = await prisma.importJob.create({ data: { tenantId, validationId, requestedById: userId, kind: "IMAGES", sourceKey: key, originalName: "4frs5.png" } });
+  await processImport(job.id);
+  expect((await getImport(actor, job.id)).status).toBe("FAILED");
+  expect((await prisma.recordImage.findUniqueOrThrow({ where: { id: old.id } })).storageKey).toBe(old.storageKey);
+  const staged = await prisma.importImageItem.findFirstOrThrow({ where: { jobId: job.id } });
+  await retryImport(actor, job.id, true); await processImport(job.id);
+  expect((await getImport(actor, job.id)).status).toBe("COMPLETED");
+  expect((await prisma.recordImage.findUniqueOrThrow({ where: { id: old.id } })).storageKey).toBe(staged.storageKey);
+  expect(await prisma.importImageItem.count({ where: { jobId: job.id } })).toBe(1);
+});
+
+it("rejects non-ASCII alfanum and does not resurrect a cancelled import", async () => {
+  const invalid = await csvJob("folio,alfanum,tipo,tro\n0001,ı1,Tipo,Otro\n");
+  expect(invalid.candidateDatasetId).toBeNull(); expect(invalid.summary).toMatchObject({ invalidRows: 1 });
+  await cancelImport(actor, invalid.id); await processImport(invalid.id);
+  expect((await getImport(actor, invalid.id)).status).toBe("CANCELLED");
+  await expect(retryImport(actor, invalid.id)).rejects.toThrow();
+});
+it("serializes simultaneous mapping commands against the current job state", async () => {
+  const key = `${randomUUID()}.csv`; await writeFile(sourcePath(key), "folio,alfanum\n0001,A1\n");
+  const job = await prisma.importJob.create({ data: { tenantId, validationId, requestedById: userId, kind: "CSV", sourceKey: key, originalName: "concurrent.csv" } });
+  await processImport(job.id);
+  const input = { mapping: { folio: "folio", alfanum: "alfanum" }, mode: "REPLACE" };
+  const results = await Promise.allSettled([configureImport(actor, job.id, input), configureImport(actor, job.id, input)]);
+  expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+  expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
+  await cancelImport(actor, job.id);
+});
+it("persists the precise decoder reason per ZIP file without publishing a partial catalogue", async () => {
+  const before = await prisma.recordImage.count({ where: { validationId } });
+  const files = join(directory, "corrupt-zip"); await mkdir(files);
+  const jpeg = await sharp({ create: { width: 32, height: 32, channels: 3, background: "white" } }).jpeg().toBuffer();
+  const corrupt = Buffer.concat([jpeg.subarray(0, 2), Buffer.from([1]), jpeg.subarray(2)]);
+  await writeFile(join(files, "6SbvATGJ.jpeg"), corrupt);
+  await writeFile(join(files, "VALID77.png"), await sharp({ create: { width: 32, height: 32, channels: 3, background: "white" } }).png().toBuffer());
+  const key = `${randomUUID()}.zip`; execFileSync("zip", ["-q", sourcePath(key), "6SbvATGJ.jpeg", "VALID77.png"], { cwd: files });
+  const job = await prisma.importJob.create({ data: { tenantId, validationId, requestedById: userId, kind: "IMAGES", sourceKey: key, originalName: "corrupt-images.zip" } });
+  await processImport(job.id);
+  const result = await getImport(actor, job.id);
+  expect(result.status).toBe("FAILED");
+  expect(result.summary).toMatchObject({ errorCount: 1, issues: [expect.stringContaining("6SbvATGJ.jpeg: No se pudo leer la imagen. JPEG malformado: 1 byte sobrante antes del marcador JPEG 0xdb")] });
+  expect(JSON.stringify(result.summary)).toContain("Corrupt JPEG data");
+  expect(JSON.stringify(result.summary)).not.toContain("nombre duplicado/no alfanumérico");
+  expect(await prisma.recordImage.count({ where: { validationId } })).toBe(before);
+  expect(await prisma.importImageItem.count({ where: { jobId: job.id } })).toBe(1);
+});

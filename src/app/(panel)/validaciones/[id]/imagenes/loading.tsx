@@ -1,0 +1,4 @@
+import { Skeleton } from "@/components/ui/skeleton";
+export default function Loading() {
+  return <section className="catalog-loading" role="status" aria-busy="true" aria-label="Cargando catálogo"><div className="skeleton-heading"><div><Skeleton className="sk-title" /><Skeleton className="sk-subtitle" /></div><Skeleton className="sk-button" /></div><div className="surface"><Skeleton className="sk-input" /><div className="skeleton-row"><Skeleton className="sk-cell" /><Skeleton className="sk-cell" /></div></div><div className="catalog-loading-list">{Array.from({ length: 6 }, (_, index) => <div className="catalog-loading-row" key={index}><Skeleton className="catalog-loading-thumb" /><div><Skeleton className="sk-label" /><Skeleton className="sk-cell" /></div><Skeleton className="sk-button" /></div>)}</div><span className="sr-only">Cargando imágenes y sus asociaciones…</span></section>;
+}

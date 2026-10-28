@@ -1,0 +1,237 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+datasource db {
+  provider = "postgresql"
+}
+enum Role {
+  ADMIN
+  CLIENT
+}
+enum UserStatus {
+  INVITED
+  ACTIVE
+  DISABLED
+}
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+}
+enum TokenPurpose {
+  INVITE
+  RESET
+}
+model Tenant {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  status TenantStatus @default(ACTIVE)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  users User[]
+  validations Validation[]
+}
+model User {
+  id String @id @default(uuid()) @db.Uuid
+  email String @unique
+  name String
+  role Role
+  status UserStatus @default(INVITED)
+  tenantId String? @db.Uuid
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  passwordHash String?
+  sessionVersion Int @default(0)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  tokens AccessToken[]
+  validations Validation[]
+  @@index([tenantId])
+}
+model AccessToken {
+  id String @id @default(uuid()) @db.Uuid
+  tokenHash String @unique
+  purpose TokenPurpose
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime @db.Timestamptz(3)
+  usedAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@index([userId, purpose])
+  @@index([expiresAt])
+}
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+  actorId String? @db.Uuid
+  tenantId String? @db.Uuid
+  metadata Json?
+  action String
+  targetId String? @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@index([createdAt])
+  @@index([tenantId, createdAt])
+}
+model RateLimitBucket {
+  key String @id
+  count Int @default(1)
+  expiresAt DateTime @db.Timestamptz(3)
+  @@index([expiresAt])
+}
+
+enum ValidationStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  DELETED
+}
+model Validation {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  createdById String @db.Uuid
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  name String @db.VarChar(120)
+  title String @db.VarChar(160)
+  instructions String @db.VarChar(2000)
+  successMessage String @db.VarChar(500)
+  errorMessage String @db.VarChar(500)
+  imageKey String?
+  imageMime String?
+  imageSize Int?
+  imageWidth Int?
+  imageHeight Int?
+  imageAlt String @default("Resultado de la validación") @db.VarChar(500)
+  activeDatasetId String? @db.Uuid
+  activeDataset Dataset? @relation("ActiveDataset", fields: [tenantId, id, activeDatasetId], references: [tenantId, validationId, id], onDelete: NoAction, onUpdate: NoAction)
+  datasets Dataset[] @relation("ValidationDatasets")
+  imageMode ImageMode @default(PER_RECORD)
+  showFolio Boolean @default(true)
+  showAlfanum Boolean @default(false)
+  showTipo Boolean @default(true)
+  showOtro Boolean @default(true)
+  showImage Boolean @default(true)
+  recordImages RecordImage[]
+  imports ImportJob[]
+  dailyStats ValidationDailyStat[]
+  publicToken String @unique @db.Uuid
+  status ValidationStatus @default(DRAFT)
+  deletedAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  @@unique([tenantId, id])
+  @@index([tenantId, status, createdAt])
+  @@index([createdById])
+}
+
+enum DatasetStatus {
+  BUILDING
+  READY
+  PUBLISHED
+  RETIRED
+}
+model Dataset {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  validationId String @db.Uuid
+  validation Validation @relation("ValidationDatasets", fields: [tenantId, validationId], references: [tenantId, id], onDelete: Restrict)
+  activeFor Validation[] @relation("ActiveDataset")
+  status DatasetStatus @default(BUILDING)
+  recordCount BigInt @default(0)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  publishedAt DateTime? @db.Timestamptz(3)
+  folios Folio[]
+  @@unique([tenantId, validationId, id])
+}
+model Folio {
+  tenantId String @db.Uuid
+  validationId String @db.Uuid
+  datasetId String @db.Uuid
+  dataset Dataset @relation(fields: [tenantId, validationId, datasetId], references: [tenantId, validationId, id], onDelete: Restrict)
+  folio String
+  alfanum String
+  alfanumNormalized String @db.VarChar(128)
+  tipo String?
+  otro String?
+  @@id([datasetId, alfanumNormalized])
+  @@index([tenantId, validationId, datasetId])
+}
+
+enum ImageMode {
+  SHARED
+  PER_RECORD
+}
+model RecordImage {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  validationId String @db.Uuid
+  validation Validation @relation(fields: [tenantId, validationId], references: [tenantId, id], onDelete: Restrict)
+  alfanumNormalized String @db.VarChar(128)
+  originalName String @db.VarChar(200)
+  storageKey String @unique
+  width Int
+  height Int
+  size Int
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  @@unique([tenantId, validationId, alfanumNormalized])
+  @@index([validationId, alfanumNormalized])
+}
+enum ImportKind {
+  CSV
+  IMAGES
+}
+enum ImportStatus {
+  QUEUED
+  PROCESSING
+  REVIEW
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+model ImportJob {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  validationId String @db.Uuid
+  validation Validation @relation(fields: [tenantId, validationId], references: [tenantId, id], onDelete: Restrict)
+  requestedById String @db.Uuid
+  kind ImportKind
+  status ImportStatus @default(QUEUED)
+  phase String @default("En cola")
+  sourceKey String
+  originalName String @db.VarChar(200)
+  mode String @default("REPLACE")
+  replaceImages Boolean @default(false)
+  mapping Json?
+  headers Json?
+  summary Json?
+  candidateDatasetId String? @db.Uuid
+  baseDatasetId String? @db.Uuid
+  total Int @default(0)
+  processed Int @default(0)
+  error String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  imageItems ImportImageItem[]
+  @@index([validationId, createdAt])
+  @@index([status, updatedAt])
+}
+model ImportImageItem {
+  id String @id @default(uuid()) @db.Uuid
+  jobId String @db.Uuid
+  job ImportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  alfanumNormalized String @db.VarChar(128)
+  originalName String @db.VarChar(200)
+  storageKey String @unique
+  width Int
+  height Int
+  size Int
+  @@unique([jobId, alfanumNormalized])
+}
+model ValidationDailyStat {
+  tenantId String @db.Uuid
+  validationId String @db.Uuid
+  validation Validation @relation(fields: [tenantId, validationId], references: [tenantId, id], onDelete: Restrict)
+  date DateTime @db.Date
+  found BigInt @default(0)
+  notFound BigInt @default(0)
+  @@id([validationId, date])
+}
