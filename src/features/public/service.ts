@@ -4,11 +4,12 @@ import { normalizeAlfanum } from "@/features/records/alfanum";
 import { createImageGrant, readImageGrant } from "./grants";
 import { imageViewerHash, validViewerSecret } from "./viewer-session";
 import { readImageFile } from "@/features/images/storage";
+import { hasPublicValidationAccess } from "./access";
 
 const available = { status: "ACTIVE" as const, deletedAt: null, tenant: { status: "ACTIVE" as const }, activeDataset: { status: "PUBLISHED" as const } };
 export async function getPublicValidation(token: string) {
   if (!z.uuid().safeParse(token).success) return null;
-  return prisma.validation.findFirst({ where: { ...available, publicToken: token }, select: { title: true, instructions: true } });
+  return prisma.validation.findFirst({ where: { ...available, publicToken: token }, select: { id: true, title: true, instructions: true, requireClientAccess: true } });
 }
 export async function verifyAlfanum(token: string, input: string, viewer: string) {
   const alfanumNormalized = normalizeAlfanum(input);
@@ -34,9 +35,10 @@ export async function verifyAlfanum(token: string, input: string, viewer: string
     return { found: true as const, message: validation.successMessage, fields, image, imageUnavailable: validation.showImage && !image };
   });
 }
-export async function publicImage(token: string, viewer: string) {
+export async function publicImage(token: string, viewer: string, accessToken?: string) {
   const grant = readImageGrant(token);
   if (!grant || !validViewerSecret(viewer) || grant.viewerHash !== imageViewerHash(viewer)) return null;
+  if (!await hasPublicValidationAccess(grant.validationId, accessToken)) return null;
   const validation = await prisma.validation.findFirst({ where: { ...available, id: grant.validationId, activeDatasetId: grant.datasetId, showImage: true } });
   if (!validation) return null;
   if (validation.imageMode === "PER_RECORD") {

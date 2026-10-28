@@ -93,8 +93,9 @@ export async function validationStatusAction(_: ActionState, form: FormData): Pr
 export async function publicSettingsAction(_: ActionState, form: FormData): Promise<ActionState> {
   const actor = await mutationActor(); if (!actor) return denied;
   const id = value(form, "id");
-  try { await updatePublicSettings(actor, id, { imageMode: value(form, "imageMode"), showFolio: form.get("showFolio") === "on", showAlfanum: form.get("showAlfanum") === "on", showTipo: form.get("showTipo") === "on", showOtro: form.get("showOtro") === "on", showImage: form.get("showImage") === "on" }); }
+  let settings: Awaited<ReturnType<typeof updatePublicSettings>>;
+  try { settings = await updatePublicSettings(actor, id, { imageMode: value(form, "imageMode"), showFolio: form.get("showFolio") === "on", showAlfanum: form.get("showAlfanum") === "on", showTipo: form.get("showTipo") === "on", showOtro: form.get("showOtro") === "on", showImage: form.get("showImage") === "on", ...(actor.role === "ADMIN" ? { requireClientAccess: form.get("requireClientAccess") === "on" } : {}) }); }
   catch (cause) { return failure(cause); }
   revalidatePath(`/validaciones/${id}/editar`);
-  return { status: "success", message: "Resultado configurado. Si estaba activa, revisa los requisitos y vuelve a activarla." };
+  return { status: "success", message: `${settings.requireClientAccess ? "Acceso del cliente activado" : "Acceso del cliente desactivado"}. ${settings.resultChanged ? "Revisa los requisitos y vuelve a activar la validación." : "La validación conserva su estado."}` };
 }

@@ -11,7 +11,7 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 assert(databaseUrl && new URL(databaseUrl).pathname === "/valweb_test", "Use only the disposable valweb_test database");
 process.env.DATABASE_URL = databaseUrl;
 const { prisma } = await import("../../src/lib/prisma");
-const base = "http://localhost:3001";
+const base = process.env.E2E_BASE_URL || "http://localhost:3001";
 const run = randomBytes(6).toString("hex");
 const password = randomBytes(24).toString("hex");
 const ids = { admin: randomUUID(), a: randomUUID(), b: randomUUID(), tenantA: randomUUID(), tenantB: randomUUID() };
@@ -163,6 +163,44 @@ try {
   assert((await clientPage.getByLabel("Instrucciones", { exact: true }).inputValue()).includes("<script>"));
   console.info("PASS: edición persistente, datos conservados ante errores y texto escapado");
 
+  await selectTab(clientPage, "Apariencia");
+  assert.equal(await clientPage.getByLabel("Solicitar acceso con cuenta de cliente", { exact: true }).count(), 0);
+  await clientPage.getByRole("button", { name: "Activar validación", exact: true }).click();
+  await clientPage.getByText("Validación activada.", { exact: true }).waitFor();
+  const publicPage = `${base}/v/${publicToken}`;
+  assert.equal((await otherContext.request.get(publicPage)).status(), 200);
+  await login(adminPage, emails.admin);
+  await adminPage.goto(`${base}/validaciones/${id}/editar?tab=apariencia`);
+  await adminPage.getByLabel("Solicitar acceso con cuenta de cliente", { exact: true }).check();
+  await adminPage.getByRole("button", { name: "Guardar configuración", exact: true }).click();
+  await adminPage.getByText("Acceso del cliente activado. La validación conserva su estado.", { exact: true }).waitFor();
+  assert.equal((await prisma.validation.findUniqueOrThrow({ where: { id } })).status, "ACTIVE");
+  assert.equal((await prisma.validation.findUniqueOrThrow({ where: { id } })).requireClientAccess, true);
+
+  await otherPage.goto(publicPage);
+  await otherPage.getByRole("heading", { name: "Acceso a la consulta", exact: true }).waitFor();
+  await otherPage.getByLabel("Correo electrónico", { exact: true }).fill(emails.b);
+  await otherPage.getByLabel("Contraseña", { exact: true }).fill(password);
+  await otherPage.getByRole("button", { name: "Continuar", exact: true }).click();
+  await otherPage.getByText("El correo o la contraseña no son válidos para esta consulta.", { exact: true }).waitFor();
+  assert.equal((await otherContext.request.post(`${base}/api/public/validations/${publicToken}/verify`, { data: { alfanum: "TEST001" }, headers: { Origin: base } })).status(), 401);
+
+  await clientPage.goto(publicPage);
+  await clientPage.getByLabel("Correo electrónico", { exact: true }).fill(emails.a);
+  await clientPage.getByLabel("Contraseña", { exact: true }).fill(password);
+  await clientPage.getByRole("button", { name: "Continuar", exact: true }).click();
+  await clientPage.getByRole("heading", { name: "Consulta tu constancia actualizada", exact: true }).waitFor();
+  assert.equal((await clientContext.request.post(`${base}/api/public/validations/${publicToken}/verify`, { data: { alfanum: "TEST001" }, headers: { Origin: base } })).status(), 200);
+  await adminPage.getByLabel("Solicitar acceso con cuenta de cliente", { exact: true }).uncheck();
+  assert.equal(await adminPage.getByLabel("Solicitar acceso con cuenta de cliente", { exact: true }).isChecked(), false);
+  await adminPage.getByRole("button", { name: "Guardar configuración", exact: true }).click();
+  await adminPage.getByText("Acceso del cliente desactivado. La validación conserva su estado.", { exact: true }).waitFor();
+  assert.equal((await prisma.validation.findUniqueOrThrow({ where: { id } })).requireClientAccess, false);
+  await otherPage.reload();
+  await otherPage.getByRole("heading", { name: "Consulta tu constancia actualizada", exact: true }).waitFor();
+  assert.equal((await prisma.validation.findUniqueOrThrow({ where: { id } })).status, "ACTIVE");
+  console.info("PASS: acceso público configurable solo por administrador y autenticación cliente por cuenta");
+
   await login(otherPage, emails.b);
   assert.equal((await otherContext.request.get(imageEndpoint)).status(), 404);
   assert.equal((await otherContext.request.delete(imageEndpoint, { headers: { Origin: base, "X-Confirm-Deactivation": "true" } })).status(), 404);
@@ -171,7 +209,6 @@ try {
   await otherPage.goto(`${base}/validaciones/${id}/editar`);
   await otherPage.getByRole("heading", { name: "Página no encontrada" }).waitFor();
   assert(!(await otherPage.locator("body").innerText()).includes(updatedName));
-  await login(adminPage, emails.admin);
   await create(adminPage, otherName, "Consulta certificados", ids.tenantB);
   await adminPage.goto(`${base}/validaciones`);
   await adminPage.getByText(updatedName, { exact: true }).waitFor();
@@ -181,6 +218,7 @@ try {
   assert(!(await otherPage.locator("table").innerText()).includes(updatedName));
   console.info("PASS: administrador asigna cuenta y clientes no cruzan datos");
 
+  await clientPage.goto(`${base}/validaciones/${id}/editar`);
   await mkdir("docs/design-audit/screenshots", { recursive: true });
   await adminPage.screenshot({ path: "docs/design-audit/screenshots/validations-admin-1440.png", fullPage: true });
   for (const width of [1440, 1280, 768, 390]) {
@@ -229,6 +267,7 @@ try {
   await clientPage.screenshot({ path: "docs/design-audit/screenshots/validation-smoke-failure.png", fullPage: true });
   console.error("Validation smoke diagnostics:", {
     errors,
+    publicPage: { url: otherPage.url(), headings: await otherPage.locator("h1").allTextContents(), controls: await otherPage.locator("input").evaluateAll(elements => elements.map(element => (element as HTMLInputElement).name)) },
     controls: await clientPage.locator("input,textarea,select").evaluateAll(elements => elements.map(element => {
       const field = element as HTMLInputElement;
       return { name: field.name, valid: field.validity.valid, message: field.validationMessage, length: field.value.length };

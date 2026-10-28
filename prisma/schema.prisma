@@ -124,6 +124,7 @@ model Validation {
   showTipo Boolean @default(true)
   showOtro Boolean @default(true)
   showImage Boolean @default(true)
+  requireClientAccess Boolean @default(false)
   recordImages RecordImage[]
   imports ImportJob[]
   dailyStats ValidationDailyStat[]
