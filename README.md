@@ -12,10 +12,10 @@ SaaS multiusuario de validaciones web de **Computer Forms**. Incluye identidad, 
 
 ## Instalación en LXC (beta)
 
-El instalador configura Valweb dentro de un contenedor LXC existente; no crea contenedores. Requiere Debian 12/13 o Ubuntu 24.04 con systemd, acceso a Internet y permisos de root. Instala la beta `v0.1.0-beta.3` desde este [script raw](https://raw.githubusercontent.com/overhang1275/SaaS-Valweb/v0.1.0-beta.3/ops/valweb-install.sh):
+El instalador configura Valweb dentro de un contenedor LXC existente; no crea contenedores. Requiere Debian 12/13 o Ubuntu 24.04 con systemd, acceso a Internet y permisos de root. Instala la versión actual del script desde la rama principal:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/overhang1275/SaaS-Valweb/v0.1.0-beta.3/ops/valweb-install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/overhang1275/SaaS-Valweb/refs/heads/main/ops/valweb-install.sh)"
 ```
 
 El asistente permite actualizar paquetes, elegir una release o un commit, configurar la aplicación y respaldar datos antes de actualizar. Los archivos se guardan en `/opt/valweb`, la configuración en `/etc/valweb/.env` y los datos en `/var/lib/valweb`. La beta necesita un proxy TLS externo para servir HTTPS. Conserva los respaldos: las migraciones de base de datos no se revierten automáticamente.
