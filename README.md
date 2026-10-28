@@ -28,19 +28,19 @@ El asistente permite actualizar paquetes, elegir una release o un commit, config
 4. Ejecuta `npm run db:generate` y `npm run db:migrate`.
 5. Define `ADMIN_EMAIL`, `ADMIN_NAME` y `ADMIN_PASSWORD` (12–128 caracteres), y ejecuta `npm run db:seed`. No hay contraseña predeterminada. Repetir el seed conserva la contraseña existente.
 6. Ejecuta `npm run dev` y abre http://localhost:3000/login.
-7. En otra terminal ejecuta `npm run worker:imports`. El servidor web recibe archivos; el worker procesa CSV e imágenes. Ambos deben usar la misma base y los mismos volúmenes privados.
+7. En otra terminal ejecuta `npm run worker:imports`. El servidor web recibe archivos; el worker procesa CSV e imágenes y envía invitaciones y enlaces de recuperación pendientes. Ambos deben usar la misma base y los mismos volúmenes privados.
 
 En este workspace se dejó un administrador local `admin@valweb.local`. Su contraseña aleatoria se encuentra únicamente en `.env`, campo `ADMIN_PASSWORD`. Ese archivo está excluido de Git y tiene permisos restrictivos. La instancia PostgreSQL local escucha en `127.0.0.1:55432`; desde el 28 de octubre sus datos están en `var/postgres`, excluido de Git, para conservarlos al limpiar `/tmp`. La base temporal anterior ya no estaba disponible: se creó una base nueva y el administrador mediante el seed; esto no recupera los registros anteriores. Para un entorno permanente utiliza PostgreSQL con almacenamiento persistente y copias de seguridad.
 
 Para reiniciar esta instancia local desde la raíz del proyecto, ejecuta `pg_ctl -D var/postgres -l var/postgres.log -o '-h 127.0.0.1 -p 55432 -k /tmp' start` y después `npm run dev`. El acceso habitual es `http://localhost:3000/login`; el puerto3001 corresponde al entorno de pruebas y utiliza cuentas independientes.
 
-Mantén también `npm run worker:imports` en otra terminal para procesar CSV e imágenes del entorno habitual. Sin ese proceso, los archivos recibidos permanecen en cola; al iniciarlo recupera los trabajos pendientes sin volver a subirlos. `worker:test` procesa únicamente el entorno de pruebas.
+Mantén también `npm run worker:imports` en otra terminal para procesar CSV e imágenes y enviar correos de acceso del entorno habitual. Sin ese proceso, las cargas y los correos permanecen en cola; al iniciarlo recupera los pendientes. `worker:test` procesa únicamente la base y el SMTP local de pruebas.
 
 ### Ajustes generales y procesador supervisado
 
 Los administradores disponen de `/admin/ajustes`: conexión a la base, estado del servicio de importaciones, espacio libre del volumen de cargas y conteos de lotes en cola, en proceso, por revisar y con errores. La pantalla actualiza la comprobación cada10segundos mientras está visible. Permite iniciar/reiniciar el procesador con confirmación, registro de auditoría y un límite global de una solicitud por minuto.
 
-En este equipo el procesador se instaló como servicio de usuario de systemd, con arranque al iniciar la sesión y recuperación automática tras un fallo. No ejecutes simultáneamente `worker:imports` manualmente si el servicio está activo. La unidad está en `ops/valweb-imports.service`; para instalarla en otro servidor Linux, ajusta `WorkingDirectory` y la ruta de Node antes de habilitarla:
+En este equipo el procesador se instaló como servicio de usuario de systemd, con arranque al iniciar la sesión y recuperación automática tras un fallo. Procesa importaciones y correos pendientes con reintentos. No ejecutes simultáneamente `worker:imports` manualmente si el servicio está activo. La unidad está en `ops/valweb-imports.service`; para instalarla en otro servidor Linux, ajusta `WorkingDirectory` y la ruta de Node antes de habilitarla:
 
 ```sh
 systemctl --user enable --now /ruta/absoluta/SaaS-Valweb/ops/valweb-imports.service
@@ -165,7 +165,7 @@ Con `npm run dev:test` activo, ejecuta también `npm run test:e2e:validations` p
 
 Ejecuta migraciones antes de `npm run build` y `npm start`. Configura HTTPS, PostgreSQL persistente, secretos y SMTP. El volumen de datos en `/tmp` de esta sesión es de desarrollo y no es almacenamiento de producción.
 
-Los límites iniciales de login se aplican por correo y globalmente; los formularios administrativos también tienen límite. Antes de publicar detrás de un proxy debe añadirse el límite por IP de ese proxy. La recuperación programa el envío después de responder mediante `after()`, por lo que su latencia SMTP no revela si existe una cuenta; la tarea no es una cola durable ante reinicios.
+Los límites iniciales de login se aplican por correo y globalmente; los formularios administrativos también tienen límite. Antes de publicar detrás de un proxy debe añadirse el límite por IP de ese proxy. Invitaciones y recuperaciones se guardan en un outbox de PostgreSQL y el worker reintenta fallos con espera progresiva; la dirección de recuperación se encola igual exista o no una cuenta. El envío es al menos una vez: una caída justo después de que SMTP acepte un correo puede provocar un duplicado al reintentar.
 
 Clientes y Usuarios buscan/filtran en PostgreSQL y muestran 25 o 50 filas por página, con total real y navegación que conserva los filtros. Clientes busca nombre/estado; Usuarios busca nombre o correo, estado, rol y cuenta, manteniendo el aislamiento del cliente. Listado y Crear cuenta/Invitar usuario son pestañas separadas; la invitación no tiene buscador y conserva un selector nativo con los nombres de las cuentas activas. Validaciones conserva su listado completo en esta fase. Todas las búsquedas administrativas reutilizan el estándar del catálogo, documentado en DESIGN.md. No se implementan facturación, OAuth para correo, almacenamiento S3/R2 ni registro público. Para CSV/ZIP grandes se requiere un servidor Node persistente y worker independiente; los límites habituales de plataformas serverless no sirven para esta recepción. Configura el proxy para permitir el tamaño, streaming sin buffering y los tiempos de carga previstos. La recepción no implementa multipart reanudable.
 

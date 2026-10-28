@@ -9,6 +9,7 @@ import { hash } from 'argon2';
 import { prisma } from '../../src/lib/prisma';
 import { limitRequest } from '../../src/features/identity/rate-limit';
 import * as mail from '../../src/features/identity/mail';
+import { processOneAccessEmail } from '../../src/features/identity/mail-outbox';
 import { authenticate, resolveActor, listUsers, createTenant, inviteUser, setTenantStatus, setUserStatus, revokeUserSessions, consumeAccessToken, requestPasswordReset } from '../../src/features/identity/service';
 
 vi.spyOn(mail, 'sendAccessEmail').mockResolvedValue(undefined);
@@ -16,6 +17,7 @@ let admin: NonNullable<Awaited<ReturnType<typeof authenticate>>>;
 let client: typeof admin;
 let otherTenant: string;
 beforeEach(async () => {
+  vi.clearAllMocks();
   await prisma.validationDailyStat.deleteMany();
   await prisma.importImageItem.deleteMany();
   await prisma.importJob.deleteMany();
@@ -26,6 +28,7 @@ beforeEach(async () => {
   await prisma.validation.deleteMany();
   await prisma.rateLimitBucket.deleteMany();
   await prisma.auditLog.deleteMany();
+  await prisma.accessEmailOutbox.deleteMany();
   await prisma.accessToken.deleteMany();
   await prisma.user.deleteMany();
   await prisma.tenant.deleteMany();
@@ -90,17 +93,29 @@ describe('identity against PostgreSQL', () => {
     expect(result.filter(x => x.status === 'fulfilled')).toHaveLength(1);
     expect(await resolveActor(client.id, 0)).toBeNull();
   });
-  it('does not enumerate missing or disabled recovery accounts', async () => {
+  it('queues recovery requests without revealing missing or disabled accounts', async () => {
     await expect(requestPasswordReset('absent@example.test')).resolves.toBeUndefined();
+    expect(await prisma.accessEmailOutbox.count({ where: { recipient: 'absent@example.test' } })).toBe(1);
     await setUserStatus(admin, client.id, 'DISABLED');
     await expect(requestPasswordReset('client@example.test')).resolves.toBeUndefined();
+    expect(await prisma.accessEmailOutbox.count({ where: { recipient: 'client@example.test' } })).toBe(1);
+    await processOneAccessEmail();
+    await processOneAccessEmail();
+    expect(mail.sendAccessEmail).not.toHaveBeenCalled();
+    expect(await prisma.accessEmailOutbox.count()).toBe(0);
   });
-  it('invalidates previous reset tokens and rolls invitation back on mail failure', async () => {
+  it('retries access mail from the durable outbox and supersedes old reset links', async () => {
     await requestPasswordReset('client@example.test');
+    await processOneAccessEmail();
+    const previousToken = vi.mocked(mail.sendAccessEmail).mock.calls[0][1];
     await requestPasswordReset('client@example.test');
+    await processOneAccessEmail();
+    const currentToken = vi.mocked(mail.sendAccessEmail).mock.calls[1][1];
+    expect(currentToken).not.toBe(previousToken);
+    await expect(consumeAccessToken(previousToken, 'Replacement-password-123')).rejects.toThrow();
     expect(await prisma.accessToken.count({ where: { userId: client.id, usedAt: null } })).toBe(1);
-    vi.mocked(mail.sendAccessEmail).mockRejectedValueOnce(new Error('SMTP unavailable'));
-    await expect(inviteUser(admin, { email: 'failed@example.test', name: 'Failed', tenantId: otherTenant })).rejects.toThrow();
-    expect(await prisma.user.findUnique({ where: { email: 'failed@example.test' } })).toBeNull();
+    await expect(inviteUser(admin, { email: 'queued@example.test', name: 'Queued', tenantId: otherTenant })).resolves.toBeDefined();
+    expect(await prisma.user.findUnique({ where: { email: 'queued@example.test' } })).not.toBeNull();
+    expect(await prisma.accessEmailOutbox.count({ where: { recipient: 'queued@example.test', purpose: 'INVITE' } })).toBe(1);
   });
 });

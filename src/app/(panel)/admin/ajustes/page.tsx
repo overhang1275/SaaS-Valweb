@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireActor } from "@/lib/auth";
 import { getSystemStatus } from "@/features/system/service";
-import { restartImportWorkerAction } from "@/features/system/actions";
+import { restartImportWorkerAction, sendConfiguredTestEmailAction } from "@/features/system/actions";
 import { ActionForm } from "@/components/action-form";
 import { SystemRefresh } from "@/components/system-refresh";
 
@@ -27,6 +27,10 @@ export default async function SettingsPage() {
     <section className="system-imports" aria-labelledby="system-imports-title"><div className="section-line"><h2 id="system-imports-title">Cargas de datos</h2><Link className="text-link" href="/validaciones">Ver validaciones</Link></div>
       <dl className="system-job-counts">{([["En cola", status.queued], ["En proceso", status.processing], ["Por revisar", status.review], ["Con errores", status.failed]] as const).map(([label, count]) => <div key={label}><dt>{label}</dt><dd>{count === null ? "—" : count.toLocaleString("es-MX")}</dd></div>)}</dl>
       <p className="help">Los lotes por revisar necesitan el mapeo de columnas. Revisa los errores desde la validación correspondiente; reiniciar no corrige archivos inválidos.</p>
+    </section>
+    <section className="form-section system-mail-test" aria-labelledby="system-mail-test-title">
+      <div><h2 id="system-mail-test-title">Correo electrónico</h2><p>Envía una prueba al buzón configurado en SMTP para comprobar que Valweb puede entregar mensajes.</p></div>
+      <ActionForm action={sendConfiguredTestEmailAction} label="Enviar correo de prueba" pendingLabel="Enviando…"><p className="help">La prueba se envía a SMTP_USER o, si no está definido, a SMTP_FROM. Se limita a un envío por minuto.</p></ActionForm>
     </section>
     <section className="form-section system-recovery" aria-labelledby="system-recovery-title"><div><h2 id="system-recovery-title">Recuperar el procesador</h2><p>Inicia el servicio si está detenido o reinícialo si necesitas recuperar el procesamiento.</p><p>Un lote activo termina antes del reinicio. Las cargas en cola se conservan; no hace falta volver a subirlas.</p></div>
       <ActionForm action={restartImportWorkerAction} label={status.worker === "stopped" ? "Iniciar procesador" : "Reiniciar procesador"} pendingLabel="Solicitando…" disabled={!controllable} confirmMessage="¿Reiniciar el procesador de importaciones? Si hay un lote activo, terminará antes del reinicio. Las cargas en cola se conservan."><p className="help">Esta acción afecta a las cargas de todas las cuentas. El acceso y las consultas públicas siguen disponibles.</p></ActionForm>

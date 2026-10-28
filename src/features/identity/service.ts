@@ -1,9 +1,10 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { hash, verify, argon2id } from 'argon2';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
 import type { Prisma } from '../../generated/prisma/client';
-import { sendAccessEmail } from './mail';
+import { encryptAccessToken } from './mail';
+import { hashAccessToken } from './tokens';
 import { tenantListQuerySchema, userListQuerySchema, type TenantListQuery, type UserListQuery } from './list-query';
 
 export type Actor = { id: string; tenantId: string | null; role: 'ADMIN' | 'CLIENT'; sessionVersion: number };
@@ -13,7 +14,6 @@ const emailSchema = z.email().max(254).transform(value => value.trim().toLowerCa
 const nameSchema = z.string().trim().min(1).max(120);
 const passwordSchema = z.string().min(12, 'Usa al menos 12 caracteres.').max(128);
 const safeUser = { id: true, email: true, name: true, role: true, status: true, tenantId: true, createdAt: true } as const;
-const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex');
 const actorOf = (user: Actor): Actor => ({ id: user.id, tenantId: user.tenantId, role: user.role, sessionVersion: user.sessionVersion });
 const audit = (tx: Tx, action: string, actorId: string | null, targetId: string) => tx.auditLog.create({ data: { action, actorId, targetId } });
 
@@ -114,8 +114,8 @@ export async function inviteUser(actor: Actor, input: { email: string; name: str
     await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${user.id}::uuid FOR UPDATE`;
     await tx.accessToken.updateMany({ where: { userId: user.id, purpose: 'INVITE', usedAt: null }, data: { usedAt: new Date() } });
     const token = randomBytes(32).toString('hex');
-    await tx.accessToken.create({ data: { userId: user.id, purpose: 'INVITE', tokenHash: tokenHash(token), expiresAt: new Date(Date.now() + 48 * 3600000) } });
-    await sendAccessEmail(email, token, 'INVITE');
+    const accessToken = await tx.accessToken.create({ data: { userId: user.id, purpose: 'INVITE', tokenHash: hashAccessToken(token), expiresAt: new Date(Date.now() + 48 * 3600000) } });
+    await tx.accessEmailOutbox.create({ data: { recipient: email, purpose: 'INVITE', accessTokenId: accessToken.id, encryptedToken: encryptAccessToken(token, accessToken.id) } });
     await audit(tx, 'USER_INVITED', admin.id, user.id);
     return tx.user.findUniqueOrThrow({ where: { id: user.id }, select: safeUser });
   }, { timeout: 15000 });
@@ -143,19 +143,16 @@ export async function requestPasswordReset(email: string): Promise<void> {
   const parsed = emailSchema.safeParse(email.trim());
   if (!parsed.success) return;
   await prisma.$transaction(async tx => {
-    const user = await tx.user.findUnique({ where: { email: parsed.data }, include: { tenant: true } });
-    if (!user || user.status !== 'ACTIVE' || (user.role === 'CLIENT' && user.tenant?.status !== 'ACTIVE')) return;
-    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${user.id}::uuid FOR UPDATE`;
-    await tx.accessToken.updateMany({ where: { userId: user.id, purpose: 'RESET', usedAt: null }, data: { usedAt: new Date() } });
-    const token = randomBytes(32).toString('hex');
-    await tx.accessToken.create({ data: { userId: user.id, purpose: 'RESET', tokenHash: tokenHash(token), expiresAt: new Date(Date.now() + 3600000) } });
-    await sendAccessEmail(user.email, token, 'RESET');
-    await audit(tx, 'PASSWORD_RESET_REQUESTED', null, user.id);
-  }, { timeout: 15000 });
+    const previous = await tx.accessEmailOutbox.findMany({ where: { recipient: parsed.data, purpose: 'RESET', accessTokenId: { not: null } }, select: { accessTokenId: true } });
+    const tokenIds = previous.flatMap(item => item.accessTokenId ? [item.accessTokenId] : []);
+    if (tokenIds.length) await tx.accessToken.updateMany({ where: { id: { in: tokenIds }, usedAt: null }, data: { usedAt: new Date() } });
+    await tx.accessEmailOutbox.deleteMany({ where: { recipient: parsed.data, purpose: 'RESET' } });
+    await tx.accessEmailOutbox.create({ data: { recipient: parsed.data, purpose: 'RESET' } });
+  });
 }
 export async function getAccessTokenInfo(token: string): Promise<{ purpose: string; email: string } | null> {
   if (!/^[a-f0-9]{64}$/.test(token)) return null;
-  const access = await prisma.accessToken.findUnique({ where: { tokenHash: tokenHash(token) }, include: { user: { include: { tenant: true } } } });
+  const access = await prisma.accessToken.findUnique({ where: { tokenHash: hashAccessToken(token) }, include: { user: { include: { tenant: true } } } });
   if (!access || access.usedAt || access.expiresAt <= new Date() || access.user.status === 'DISABLED' || (access.user.role === 'CLIENT' && access.user.tenant?.status !== 'ACTIVE')) return null;
   return { purpose: access.purpose, email: access.user.email };
 }
@@ -163,7 +160,7 @@ export async function consumeAccessToken(token: string, password: string): Promi
   if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('El enlace no es válido o ha caducado.');
   const passwordHash = await hash(passwordSchema.parse(password), { type: argon2id });
   await prisma.$transaction(async tx => {
-    const access = await tx.accessToken.findUnique({ where: { tokenHash: tokenHash(token) } });
+    const access = await tx.accessToken.findUnique({ where: { tokenHash: hashAccessToken(token) } });
     if (!access) throw new Error('El enlace no es válido o ha caducado.');
     await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${access.userId}::uuid FOR UPDATE`;
     const claimed = await tx.accessToken.updateMany({ where: { id: access.id, usedAt: null, expiresAt: { gt: new Date() } }, data: { usedAt: new Date() } });

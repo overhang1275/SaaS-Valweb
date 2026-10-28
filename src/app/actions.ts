@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { after } from "next/server";
 import { ZodError } from "zod";
 import { getActor } from "@/lib/auth";
 import type { ActionState } from "@/lib/action-state";
@@ -41,7 +40,7 @@ export async function tenantStatusAction(_: ActionState, form: FormData) {
 }
 
 export async function inviteUserAction(_: ActionState, form: FormData) {
-  return adminMutation(actor => inviteUser(actor, { name: value(form, "name"), email: value(form, "email"), tenantId: value(form, "tenantId") }), "Invitación enviada. El enlace vence en 48 horas.");
+  return adminMutation(actor => inviteUser(actor, { name: value(form, "name"), email: value(form, "email"), tenantId: value(form, "tenantId") }), "Invitación agregada a la cola de correo. El enlace vence en 48 horas.");
 }
 
 export async function userStatusAction(_: ActionState, form: FormData) {
@@ -59,10 +58,7 @@ export async function resetPasswordAction(_: ActionState, form: FormData): Promi
   if (email.length > 254) return error("Introduce un correo válido.");
   if (!await limitRequest("reset-global", "all", 60, 3600)) return error("Demasiadas solicitudes. Inténtalo más tarde.");
   if (await limitRequest("reset-email", email, 3, 3600)) {
-    // The response must not reveal account existence through SMTP latency.
-    after(async () => {
-      try { await requestPasswordReset(email); } catch { console.error("PASSWORD_RESET_DELIVERY_FAILED"); }
-    });
+    try { await requestPasswordReset(email); } catch { console.error("PASSWORD_RESET_QUEUE_FAILED"); }
   }
   return success("Si el correo tiene acceso activo, recibirás un enlace para establecer una nueva contraseña.");
 }

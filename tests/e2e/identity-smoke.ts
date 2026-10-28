@@ -95,7 +95,7 @@ try {
     await adminPage.getByLabel("Correo electrónico", { exact: true }).fill(email);
     await adminPage.getByLabel("Cuenta", { exact: true }).selectOption({ label: tenant });
     await adminPage.getByRole("button", { name: "Enviar invitación", exact: true }).click();
-    await visible(adminPage, "Invitación enviada. El enlace vence en 48 horas.");
+    await visible(adminPage, "Invitación agregada a la cola de correo. El enlace vence en 48 horas.");
   }
   console.info("PASS: login, creación de cuentas e invitación SMTP local");
   const clientContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -104,7 +104,7 @@ try {
   const previousInvitation = await receivedToken(emailA);
   await adminPage.goto(`${base}/admin/usuarios`);
   await adminPage.getByRole("row").filter({ hasText: emailA }).getByRole("button", { name: "Reenviar invitación", exact: true }).click();
-  await visible(adminPage, "Invitación enviada. El enlace vence en 48 horas.");
+  await visible(adminPage, "Invitación agregada a la cola de correo. El enlace vence en 48 horas.");
   const invitation = await receivedToken(emailA, previousInvitation);
   assert.notEqual(invitation, previousInvitation);
   await clientPage.goto(`${base}/establecer-password?token=${previousInvitation}`);

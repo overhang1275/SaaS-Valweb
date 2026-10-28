@@ -56,8 +56,23 @@ model AccessToken {
   expiresAt DateTime @db.Timestamptz(3)
   usedAt DateTime? @db.Timestamptz(3)
   createdAt DateTime @default(now()) @db.Timestamptz(3)
+  emailOutbox AccessEmailOutbox?
   @@index([userId, purpose])
   @@index([expiresAt])
+}
+model AccessEmailOutbox {
+  id String @id @default(uuid()) @db.Uuid
+  recipient String @db.VarChar(254)
+  purpose TokenPurpose
+  accessTokenId String? @unique @db.Uuid
+  accessToken AccessToken? @relation(fields: [accessTokenId], references: [id], onDelete: Cascade)
+  encryptedToken String?
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now()) @db.Timestamptz(3)
+  lockedAt DateTime? @db.Timestamptz(3)
+  lastErrorCode String? @db.VarChar(80)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@index([nextAttemptAt, lockedAt, createdAt])
 }
 model AuditLog {
   id String @id @default(uuid()) @db.Uuid
