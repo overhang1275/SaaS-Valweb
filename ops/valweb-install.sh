@@ -115,7 +115,7 @@ systemctl start "user@$(id -u valweb).service"
 [[ -S "/run/user/$(id -u valweb)/bus" ]] || die 'systemd no creó el bus de usuario para el worker.'
 
 INSTALLED=""
-if [[ -L $APP/current ]]; then INSTALLED=$(git -C "$APP/current" rev-parse HEAD 2>/dev/null || true); fi
+if [[ -L $APP/current ]]; then INSTALLED=$(runuser -u valweb -- git -C "$APP/current" rev-parse HEAD 2>/dev/null || true); fi
 [[ -n $INSTALLED ]] || INSTALLED=ninguno
 if yesno '¿Buscar versiones y actualizaciones de Valweb en GitHub?'; then SEARCH=1; else SEARCH=0; fi
 [[ $SEARCH == 1 ]] || { [[ $INSTALLED != ninguno ]] || die 'No hay una instalación para conservar.'; TARGET=$INSTALLED; MODE=keep; }
@@ -153,7 +153,7 @@ if [[ $MODE != keep ]]; then
   if [[ $MODE == manual ]] && ! git -C "$TMP/source" branch -r --contains "$TARGET" | grep -q . && ! git -C "$TMP/source" tag --contains "$TARGET" | grep -q .; then die 'El commit no pertenece a una rama o tag publicado del repositorio.'; fi
   printf '\nInstalado: %s\nSeleccionado: %s (%s)\n' "${INSTALLED:0:12}" "${TARGET:0:12}" "$MODE"
   git -C "$TMP/source" log -1 --format='Fecha: %cI%nDescripción: %s' "$TARGET"
-  if [[ $INSTALLED != ninguno ]] && git -C "$APP/current" cat-file -e "$INSTALLED^{commit}" 2>/dev/null; then git -C "$APP/current" log --oneline "$INSTALLED..$TARGET" | head -20; fi
+  if [[ $INSTALLED != ninguno ]] && runuser -u valweb -- git -C "$APP/current" cat-file -e "$INSTALLED^{commit}" 2>/dev/null; then runuser -u valweb -- git -C "$APP/current" log --oneline "$INSTALLED..$TARGET" | head -20; fi
   yesno '¿Continuar con esta versión?' || exit 0
 fi
 
@@ -342,9 +342,12 @@ userctl is-active --quiet "$WORKER" || die 'El worker de importaciones no pudo i
 systemctl enable --now nginx "$SERVICE"
 
 if [[ -n ${ADMIN_EMAIL:-} ]]; then unset ADMIN_EMAIL ADMIN_NAME ADMIN_PASSWORD; fi
-for attempt in {1..30}; do curl -fsS "http://127.0.0.1:$PORT/login" >/dev/null && break; sleep 2; done
-curl -fsS "http://127.0.0.1:$PORT/login" >/dev/null || die 'La aplicación no respondió. Revisa journalctl; conserva el respaldo para recuperación.'
-say "Valweb está activo. commit $(git -C "$APP/current" rev-parse --short HEAD)."
+for attempt in {1..30}; do curl -fsS --max-time 3 "http://127.0.0.1:$PORT/login" >/dev/null 2>&1 && break; sleep 2; done
+if ! curl -fsS --max-time 3 "http://127.0.0.1:$PORT/login" >/dev/null 2>&1; then
+  journalctl -u "$SERVICE" -n 50 --no-pager >&2 || true
+  die 'La aplicación no respondió en el puerto configurado. El instalador restaurará la versión anterior si existe.'
+fi
+say "Valweb está activo. commit ${TARGET:0:12}."
 say "URL: $DOMAIN  |  Respaldo: $BACKUPS  |  Servicios: $SERVICE, $WORKER, nginx"
 say 'SMTP debe usar 587/STARTTLS u Office365; HTTPS debe terminar en un proxy TLS externo.'
 say 'Recuperación: detén servicios, restaura el symlink de release anterior y restaura el dump PostgreSQL solo tras confirmar el respaldo.'
