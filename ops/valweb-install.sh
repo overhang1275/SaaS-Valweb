@@ -91,8 +91,10 @@ node -e 'if(Number(process.versions.node.split(".")[0])<24)process.exit(1)' || d
 TMP=$(mktemp -d /tmp/valweb-manager.XXXXXX)
 chmod 700 "$TMP"
 mkdir -p "$RELEASES" "$DATA/images" "$DATA/imports" "$BACKUPS" /etc/valweb
-chmod 700 /etc/valweb "$BACKUPS"
+chmod 700 "$BACKUPS"
 if ! id valweb >/dev/null 2>&1; then useradd --system --home-dir "$APP" --create-home --shell /usr/sbin/nologin valweb; fi
+chown root:valweb /etc/valweb
+chmod 750 /etc/valweb
 chown -R valweb:valweb "$APP" "$DATA"
 loginctl enable-linger valweb
 systemctl start "user@$(id -u valweb).service"
