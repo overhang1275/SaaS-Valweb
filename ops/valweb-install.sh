@@ -184,6 +184,8 @@ if [[ $INSTALLED != ninguno ]]; then
   if [[ -f $APP/current/scripts/image-backup-paths.ts ]]; then
     IMAGE_PATHS_JSON=$(run_as_valweb node --import tsx scripts/image-backup-paths.ts) || die 'No se pudieron verificar los destinos de imágenes para el respaldo.'
   elif [[ -f $TMP/source/scripts/image-backup-paths-legacy.mjs ]]; then
+    chmod 711 "$TMP" "$TMP/source" "$TMP/source/scripts"
+    chmod 644 "$TMP/source/scripts/image-backup-paths-legacy.mjs"
     IMAGE_PATHS_JSON=$(run_as_valweb env NODE_PATH="$APP/current/node_modules" node "$TMP/source/scripts/image-backup-paths-legacy.mjs" "$CONFIG") || die 'No se pudieron verificar los destinos de imágenes para el respaldo.'
   else
     IMAGE_PATHS_JSON=$(run_as_valweb node --input-type=commonjs -e 'require("dotenv").config({path:process.argv[1],override:true}); const {Pool}=require("pg"); (async()=>{const pool=new Pool({connectionString:process.env.DATABASE_URL}); try {const table="public.\"ImageStorageLocation\""; const {rows}=await pool.query("SELECT to_regclass($1) IS NOT NULL AS present", [table]); if(rows[0].present) throw new Error("storage helper unavailable"); process.stdout.write("[]\n")} finally {await pool.end()}})().catch(()=>{console.error("storage helper unavailable");process.exitCode=1})' "$CONFIG") || die 'La base ya usa almacenamiento administrado, pero esta versión no puede enumerarlo para el respaldo.'
