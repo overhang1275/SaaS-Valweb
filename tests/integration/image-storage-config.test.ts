@@ -6,8 +6,24 @@ vi.hoisted(() => {
 });
 
 import { prisma } from "../../src/lib/prisma";
+import { ensureDefaultLocalImageLocation } from "../../src/features/images/locations";
 
 afterAll(async () => { await prisma.$disconnect(); });
+
+it("bootstraps the default local path without overwriting administrator configuration", async () => {
+  const rollback = new Error("Rollback local destination bootstrap fixture");
+  await expect(prisma.$transaction(async tx => {
+    await tx.imageStorageLocation.deleteMany();
+    await ensureDefaultLocalImageLocation(tx, "/var/lib/valweb/images");
+    await tx.imageStorageLocation.create({ data: { kind: "NFS", rootPath: "/mnt/valweb-nfs" } });
+    await ensureDefaultLocalImageLocation(tx, "/a/changed/default");
+    expect(await tx.imageStorageLocation.findMany({ orderBy: { kind: "asc" }, select: { kind: true, rootPath: true } })).toEqual([
+      { kind: "LOCAL", rootPath: "/var/lib/valweb/images" },
+      { kind: "NFS", rootPath: "/mnt/valweb-nfs" },
+    ]);
+    throw rollback;
+  })).rejects.toBe(rollback);
+});
 
 it("persists and updates independent global local and NFS roots", async () => {
   const rollback = new Error("Rollback storage configuration fixture");

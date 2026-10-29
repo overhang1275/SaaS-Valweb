@@ -39,6 +39,13 @@ getenv(){ sed -n "s/^$1=//p" "$CONFIG" | tail -n1 | sed -e 's/^"//' -e 's/"$//' 
 cleanup(){ [[ -z $TMP ]] || rm -rf -- "$TMP"; }
 trap cleanup EXIT
 userctl(){ local uid; uid=$(id -u valweb); runuser -u valweb -- env HOME="$VALWEB_HOME" XDG_CONFIG_HOME="$VALWEB_HOME/.config" XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" systemctl --user "$@"; }
+own_data_dirs(){
+  [[ ! -L $DATA && ! -L $DATA/images && ! -L $DATA/imports ]] || die 'Los directorios persistentes de Valweb no pueden ser enlaces simbólicos.'
+  [[ ! -d $DATA ]] || mountpoint -q "$DATA" || chown "valweb:$VALWEB_GROUP" "$DATA"
+  for data_dir in "$DATA/images" "$DATA/imports"; do
+    [[ ! -d $data_dir ]] || mountpoint -q "$data_dir" || chown "valweb:$VALWEB_GROUP" "$data_dir"
+  done
+}
 run_as_valweb(){
   local uid gid
   uid=$(id -u valweb); gid=$(id -g valweb)
@@ -112,7 +119,8 @@ VALWEB_HOME=$(getent passwd valweb | cut -d: -f6)
 VALWEB_GROUP=$(id -gn valweb)
 chown root:"$VALWEB_GROUP" /etc/valweb
 chmod 750 /etc/valweb
-chown -R "valweb:$VALWEB_GROUP" "$APP" "$DATA"
+chown -R "valweb:$VALWEB_GROUP" "$APP"
+own_data_dirs
 loginctl enable-linger valweb
 systemctl start "user@$(id -u valweb).service"
 [[ -S "/run/user/$(id -u valweb)/bus" ]] || die 'systemd no creó el bus de usuario para el worker.'
@@ -168,14 +176,20 @@ if [[ $INSTALLED != ninguno ]]; then
   STAMP=$(date -u +%Y%m%dT%H%M%SZ)
   if ! grep -q '^IMAGE_STORAGE_DIR=' "$CONFIG" && [[ -d $APP/current/var/assets ]] && [[ -z $(find "$DATA/images" -mindepth 1 -print -quit) ]]; then cp -a "$APP/current/var/assets/." "$DATA/images/"; fi
   if ! grep -q '^IMPORT_STORAGE_DIR=' "$CONFIG" && [[ -d $APP/current/var/imports ]] && [[ -z $(find "$DATA/imports" -mindepth 1 -print -quit) ]]; then cp -a "$APP/current/var/imports/." "$DATA/imports/"; fi
-  chown -R valweb:valweb "$DATA"
+  own_data_dirs
   systemctl stop "$SERVICE" 2>/dev/null || true
   userctl stop "$WORKER" 2>/dev/null || true
   SERVICES_STOPPED=1
   (cd "$APP/current" && node --input-type=commonjs -e 'require("dotenv").config({path:process.argv[1],override:true}); const {spawnSync}=require("node:child_process"); const u=new URL(process.env.DATABASE_URL); const env={...process.env,PGHOST:u.hostname,PGPORT:u.port||"5432",PGUSER:decodeURIComponent(u.username),PGPASSWORD:decodeURIComponent(u.password),PGDATABASE:decodeURIComponent(u.pathname.slice(1)),PGSSLMODE:u.searchParams.get("sslmode")||"disable"}; const r=spawnSync("pg_dump",["--format=custom","--no-owner","--no-acl","--file",process.argv[2],"--dbname",env.PGDATABASE],{env,stdio:"inherit"}); process.exit(r.status??1)' "$CONFIG" "$BACKUPS/$STAMP.dump")
-  IMAGE_PATHS_JSON=$(run_as_valweb node --import tsx scripts/image-backup-paths.ts) || die 'No se pudieron verificar los destinos de imágenes para el respaldo.'
+  if [[ -f $APP/current/scripts/image-backup-paths.ts ]]; then
+    IMAGE_PATHS_JSON=$(run_as_valweb node --import tsx scripts/image-backup-paths.ts) || die 'No se pudieron verificar los destinos de imágenes para el respaldo.'
+  elif [[ -f $TMP/source/scripts/image-backup-paths-legacy.mjs ]]; then
+    IMAGE_PATHS_JSON=$(run_as_valweb env NODE_PATH="$APP/current/node_modules" node "$TMP/source/scripts/image-backup-paths-legacy.mjs" "$CONFIG") || die 'No se pudieron verificar los destinos de imágenes para el respaldo.'
+  else
+    IMAGE_PATHS_JSON=$(run_as_valweb node --input-type=commonjs -e 'require("dotenv").config({path:process.argv[1],override:true}); const {Pool}=require("pg"); (async()=>{const pool=new Pool({connectionString:process.env.DATABASE_URL}); try {const table="public.\"ImageStorageLocation\""; const {rows}=await pool.query("SELECT to_regclass($1) IS NOT NULL AS present", [table]); if(rows[0].present) throw new Error("storage helper unavailable"); process.stdout.write("[]\n")} finally {await pool.end()}})().catch(()=>{console.error("storage helper unavailable");process.exitCode=1})' "$CONFIG") || die 'La base ya usa almacenamiento administrado, pero esta versión no puede enumerarlo para el respaldo.'
+  fi
   mapfile -t PERSISTED_IMAGE_PATHS < <(jq -er '.[]' <<<"$IMAGE_PATHS_JSON")
-  (cd "$APP/current" && node --input-type=commonjs -e 'require("dotenv").config({path:process.argv[1],override:true}); const fs=require("node:fs"),{spawnSync}=require("node:child_process"); const paths=["var/lib/valweb","etc/valweb",process.env.IMAGE_STORAGE_DIR,process.env.IMPORT_STORAGE_DIR,...process.argv.slice(3)].filter(Boolean).map(p=>p.replace(/^\/+/,"")).filter((p,i,a)=>a.indexOf(p)===i&&fs.existsSync("/"+p)); const r=spawnSync("tar",["-C","/","-czf",process.argv[2],"--",...paths],{stdio:"inherit"}); process.exit(r.status??1)' "$CONFIG" "$BACKUPS/$STAMP-data.tar.gz" "${PERSISTED_IMAGE_PATHS[@]}")
+  (cd "$APP/current" && node --input-type=commonjs -e 'require("dotenv").config({path:process.argv[1],override:true}); const fs=require("node:fs"),{spawnSync}=require("node:child_process"); const paths=["var/lib/valweb","etc/valweb",process.env.IMAGE_STORAGE_DIR,process.env.IMPORT_STORAGE_DIR,...process.argv.slice(3)].filter(Boolean).map(p=>p.replace(/^\/+/,"")).filter((p,i,a)=>a.indexOf(p)===i&&fs.existsSync("/"+p)); const r=spawnSync("tar",["-C","/","--one-file-system","-czf",process.argv[2],"--",...paths],{stdio:"inherit"}); process.exit(r.status??1)' "$CONFIG" "$BACKUPS/$STAMP-data.tar.gz" "${PERSISTED_IMAGE_PATHS[@]}")
   chmod 600 "$BACKUPS/$STAMP"* 2>/dev/null || true
 fi
 
@@ -251,7 +265,8 @@ fi
 
 # Do not source .env: it contains secrets and is dotenv syntax, not shell code.
 PORT=$(getenv APP_PORT); PORT=${PORT:-3000}
-install -d -o valweb -g valweb "$DATA/images" "$DATA/imports"
+mkdir -p "$DATA/images" "$DATA/imports"
+own_data_dirs
 
 if [[ $MODE != keep ]]; then
   ln -sfn "$CONFIG" "$RELEASE/.env"
@@ -270,6 +285,10 @@ if [[ $MODE != keep ]]; then
   ln -sfn "$RELEASE" "$APP/current.new"
   mv -Tf "$APP/current.new" "$APP/current"
   SWITCHED=1
+fi
+
+if [[ -f $RELEASE/scripts/ensure-local-image-storage.ts ]]; then
+  run_as_valweb env DEFAULT_LOCAL_IMAGE_ROOT="$DATA/images" node --import tsx scripts/ensure-local-image-storage.ts
 fi
 
 STAMP=${STAMP:-$(date -u +%Y%m%dT%H%M%SZ)}
@@ -368,5 +387,7 @@ if ! curl -fsS --max-time 3 "http://127.0.0.1:$PORT/login" >/dev/null 2>&1; then
 fi
 say "Valweb está activo. commit ${TARGET:0:12}."
 say "URL: $DOMAIN  |  Respaldo: $BACKUPS  |  Servicios: $SERVICE, $WORKER, nginx"
+say "Imágenes: LOCAL predeterminado en $DATA/images; cada validación usa <tenantUUID>_<validationUUID>/por_procesar/ y /procesadas/."
+say "FTP: concede a la cuenta de carga acceso de escritura y listado en por_procesar/ y lectura de sus archivos; alinea el GID del NFS externamente."
 say 'SMTP debe usar 587/STARTTLS u Office365; HTTPS debe terminar en un proxy TLS externo.'
 say 'Recuperación: detén servicios, restaura el symlink de release anterior y restaura el dump PostgreSQL solo tras confirmar el respaldo.'

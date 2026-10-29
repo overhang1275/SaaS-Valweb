@@ -34,6 +34,16 @@ async function lockConfiguration(tx: Prisma.TransactionClient) {
   await tx.$queryRaw`SELECT kind FROM "ImageStorageLocation" ORDER BY kind FOR UPDATE`;
 }
 
+export async function ensureDefaultLocalImageLocation(tx: Prisma.TransactionClient, rootPath: string) {
+  const path = imageRootPath(rootPath);
+  await lockConfiguration(tx);
+  const existing = await tx.imageStorageLocation.findUnique({ where: { kind: "LOCAL" } });
+  if (existing) return existing;
+  const nfs = await tx.imageStorageLocation.findUnique({ where: { kind: "NFS" } });
+  if (nfs && pathsOverlap(path, resolve(nfs.rootPath))) throw new ImageError(409, "La ruta local predeterminada coincide con el destino NFS configurado.");
+  return tx.imageStorageLocation.create({ data: { kind: "LOCAL", rootPath: path } });
+}
+
 export async function saveGlobalImageLocation(actor: Actor, input: unknown): Promise<void> {
   await prisma.$transaction(async tx => {
     const user = await currentActor(tx, actor, true);
