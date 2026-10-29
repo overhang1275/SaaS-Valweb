@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,6 +9,7 @@ vi.mock("../../src/lib/prisma", () => {
   return { prisma: { ...tx, $transaction: vi.fn(async (callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx)) } };
 });
 import { prisma } from "../../src/lib/prisma";
+import { childDirectory, openDirectory } from "../../src/features/images/filesystem";
 import { writeImageFile, readImageFile, removeImageFile } from "../../src/features/images/storage";
 
 const target = { kind: "LOCAL" as const, tenantId: randomUUID(), validationId: randomUUID() };
@@ -22,6 +23,19 @@ beforeEach(async () => {
   vi.mocked(prisma.imageStorageLocation.findUnique).mockResolvedValue({ kind: "LOCAL", rootPath: configured, updatedAt: new Date() });
 });
 afterEach(async () => { vi.unstubAllEnvs(); vi.clearAllMocks(); await rm(directory, { recursive: true, force: true }); });
+
+it("creates the FTP intake folder with shared group access despite a restrictive umask", async () => {
+  const oldUmask = process.umask(0o077);
+  const root = await openDirectory(configured, false);
+  try {
+    const folder = await childDirectory(root, "validation", true, 0o2770);
+    try {
+      const details = await stat(`/proc/self/fd/${folder.fd}`);
+      expect(details.mode & 0o2777).toBe(0o2770);
+      expect(details.gid).toBe((await root.stat()).gid);
+    } finally { await folder.close(); }
+  } finally { await root.close(); process.umask(oldUmask); }
+});
 
 it("writes a self-contained key in the validation folder and keeps FTP originals", async () => {
   await mkdir(join(configured, folder));

@@ -16,13 +16,21 @@ export function imageRootPath(input: string) {
   return path;
 }
 export function handlePath(handle: FileHandle) { return `/proc/self/fd/${handle.fd}`; }
-export async function childDirectory(parent: FileHandle, name: string, create: boolean) {
+export async function childDirectory(parent: FileHandle, name: string, create: boolean, mode = 0o700) {
   const path = join(handlePath(parent), name);
   if (create) {
-    try { await mkdir(path, { mode: 0o700 }); }
+    try { await mkdir(path, { mode }); }
     catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause; }
   }
-  return open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  const directory = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  try {
+    if (create && mode !== 0o700) {
+      const parentInfo = await parent.stat();
+      await directory.chown(-1, parentInfo.gid);
+      await directory.chmod(mode);
+    }
+    return directory;
+  } catch (cause) { await directory.close(); throw cause; }
 }
 export async function openDirectory(path: string, create: boolean) {
   let handle = await open("/", constants.O_RDONLY | constants.O_DIRECTORY);

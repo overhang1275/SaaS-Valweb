@@ -168,9 +168,9 @@ export async function createValidationImageFolder(actor: Actor, id: string): Pro
     try {
       const root = await openImageStorageRoot(location.rootPath, location.kind, true);
       try {
-        const folder = await childDirectory(root, `${validation.tenantId}_${validation.id}`, true);
+        const folder = await childDirectory(root, `${validation.tenantId}_${validation.id}`, true, 0o2770);
         try {
-          const inbox = await childDirectory(folder, "por_procesar", true); await inbox.close();
+          const inbox = await childDirectory(folder, "por_procesar", true, 0o2770); await inbox.close();
           const processed = await childDirectory(folder, "procesadas", true); await processed.close();
         }
         finally { await folder.close(); }

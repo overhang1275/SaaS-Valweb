@@ -4,7 +4,7 @@ vi.hoisted(() => {
   process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 });
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile, chmod } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile, chmod, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prisma } from "../../src/lib/prisma";
@@ -184,8 +184,13 @@ it("creates the validation folder idempotently, preserves originals and hides se
     expect(JSON.stringify(before)).not.toContain(root);
     await expect(getGlobalImageLocations(actors.client)).rejects.toThrow();
     await expect(getGlobalImageLocations({ ...actors.client, role: "ADMIN" })).rejects.toThrow();
-    await createValidationImageFolder(actors.client, validation.id);
     const path = join(root, `${validation.tenantId}_${validation.id}`);
+    await mkdir(path);
+    await mkdir(join(path, "por_procesar"));
+    await createValidationImageFolder(actors.client, validation.id);
+    expect((await stat(path)).mode & 0o2777).toBe(0o2770);
+    expect((await stat(join(path, "por_procesar"))).mode & 0o2777).toBe(0o2770);
+    expect((await stat(join(path, "procesadas"))).mode & 0o777).toBe(0o700);
     await writeFile(join(path, "A1.png"), "FTP original");
     await createValidationImageFolder(actors.client, validation.id);
     expect(await readFile(join(path, "A1.png"), "utf8")).toBe("FTP original");

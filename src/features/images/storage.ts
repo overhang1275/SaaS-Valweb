@@ -30,8 +30,8 @@ export async function lockImageLocation(tx: Prisma.TransactionClient, kind: Stor
 async function managedDirectory(location: ImageStorageLocation, destination: RegExpExecArray, create: boolean) {
   let handle = await openImageStorageRoot(location.rootPath, location.kind);
   try {
-    for (const part of [destination[2], "procesadas"]) {
-      const next = await childDirectory(handle, part, create);
+    for (const [index, part] of [destination[2], "procesadas"].entries()) {
+      const next = await childDirectory(handle, part, create, index === 0 ? 0o2770 : 0o700);
       await handle.close();
       handle = next;
     }
