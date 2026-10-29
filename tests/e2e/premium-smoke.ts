@@ -88,7 +88,7 @@ try {
   await selectTab(page, "Resumen");
   assert.equal(await page.locator(".page-transition").evaluate(element => getComputedStyle(element).transform), "none");
   console.info("PASS: tabsURL/teclado/atrás, formulario y archivo preservados, popover, cancelar/Escape, drawer, cuatro anchos y reduced-motion");
-  await visitor.goto(`${base}/v/${publicToken}`); await visitor.getByLabel("Alfanumérico", { exact: true }).fill("CF123");
+  await visitor.goto(`${base}/v/${publicToken}`); await visitor.getByLabel("Código alfanumérico", { exact: true }).fill("CF123");
   let release: (() => void) | undefined;
   await visitor.route("**/api/public/validations/*/verify", async route => { await new Promise<void>(resolve => { release = resolve; }); await route.continue(); });
   await visitor.getByRole("button", { name: "Consultar", exact: true }).click();

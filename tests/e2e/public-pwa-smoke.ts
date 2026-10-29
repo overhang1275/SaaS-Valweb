@@ -37,7 +37,7 @@ try {
   const workerResponse = await context.request.get(`${base}/public-validation-sw.js`); assert.equal(workerResponse.headers()["service-worker-allowed"], "/v/"); assert.match(workerResponse.headers()["cache-control"], /no-store/);
   await page.getByRole("button", { name: "Cómo instalar esta consulta", exact: true }).click(); await page.getByRole("dialog", { name: "Cómo instalar esta consulta", exact: true }).waitFor();
   assert((await page.getByRole("dialog").innerText()).includes("iPhone")); await page.keyboard.press("Escape"); await page.getByRole("dialog").waitFor({ state: "hidden" });
-  await page.getByLabel("Alfanumérico", { exact: true }).fill("PWA1"); await page.getByRole("button", { name: "Consultar", exact: true }).click(); await page.getByText("0001", { exact: true }).waitFor();
+  await page.getByLabel("Código alfanumérico", { exact: true }).fill("PWA1"); await page.getByRole("button", { name: "Consultar", exact: true }).click(); await page.getByText("0001", { exact: true }).waitFor();
   assert.deepEqual(await page.evaluate(() => caches.keys()), []);
   const cdp = await context.newCDPSession(page);
   const browserManifest = await cdp.send("Page.getAppManifest"); assert.equal(browserManifest.url, `${base}/v/${token}/manifest.webmanifest`); assert.deepEqual(browserManifest.errors, []);
@@ -46,7 +46,7 @@ try {
   await context.setOffline(true); await page.reload(); await page.getByRole("heading", { name: "Sin conexión", exact: true }).waitFor(); assert.equal(await page.getByText("0001", { exact: true }).count(), 0);
   await page.screenshot({ path: "output/playwright/public-pwa-offline-390.png", fullPage: true }); assert.deepEqual(await page.evaluate(() => caches.keys()), []);
   await context.setOffline(false); await page.getByRole("link", { name: "Reintentar conexión", exact: true }).click(); await page.getByRole("heading", { name: "Consulta de constancias", exact: true }).waitFor();
-  assert.equal(await page.getByLabel("Alfanumérico", { exact: true }).inputValue(), "");
+  assert.equal(await page.getByLabel("Código alfanumérico", { exact: true }).inputValue(), "");
   await prisma.validation.update({ where: { id: validationId }, data: { status: "INACTIVE" } });
   assert.equal((await context.request.get(`${base}/v/${token}/manifest.webmanifest`)).status(), 404);
   await page.reload(); await page.getByRole("heading", { name: "Validación no disponible", exact: true }).waitFor();

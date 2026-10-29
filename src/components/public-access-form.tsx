@@ -19,15 +19,14 @@ export function PublicAccessForm({ token }: { token: string }) {
     } catch { setMessage("No se pudo conectar. Inténtalo de nuevo."); }
     finally { setPending(false); }
   }
-  return <section className="public-validation public-access" aria-labelledby="public-access-title">
-    <h1 id="public-access-title">Acceso a la consulta</h1>
-    <p className="public-instructions">Inicia sesión con el correo y la contraseña de tu cuenta de cliente.</p>
-    <form className="stack" onSubmit={submit}>
+  return <section className="public-validation public-access auth-content" aria-labelledby="public-access-title">
+    <header className="public-page-heading auth-intro"><h1 id="public-access-title">Acceso a la consulta</h1><p className="public-instructions">Inicia sesión con el correo y la contraseña de tu cuenta de cliente.</p></header>
+    <form className="stack" aria-busy={pending} onSubmit={submit}>
       <div className="field"><label htmlFor="public-access-email">Correo electrónico</label><input id="public-access-email" name="email" type="email" autoComplete="username" required maxLength={254} /></div>
       <div className="field"><label htmlFor="public-access-password">Contraseña</label><input id="public-access-password" name="password" type="password" autoComplete="current-password" required maxLength={128} /></div>
-      <button className="button" type="submit" disabled={pending}>{pending ? "Verificando…" : "Continuar"}</button>
-      <Link className="auth-link" href="/recuperar-acceso">¿Olvidaste tu contraseña?</Link>
-      <div role="alert" aria-live="polite">{message && <p className="feedback error">{message}</p>}</div>
+      <button className="button" type="submit" disabled={pending}>{pending ? "Verificando…" : "Entrar"}</button>
+      {message && <p className="feedback error" role="alert">{message}</p>}
     </form>
+    <Link className="auth-link" href="/recuperar-acceso">¿Olvidaste tu contraseña?</Link>
   </section>;
 }

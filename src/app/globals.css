@@ -629,30 +629,31 @@ summary:focus-visible { outline: 3px solid var(--accent); outline-offset: -4px; 
   .validation-workspace:not([data-section="resumen"]) .workspace-inspector { grid-row: 2; }
   .workspace-panel { scroll-margin-top: 140px; }
 }
-/* Public verification keeps the document, not animation, at the center. */
-.public-shell { background: var(--ground); }
-.public-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 28px 40px; border-bottom: 1px solid var(--border); background: white; }
-.public-header > a { min-height: 44px; display: inline-flex; align-items: center; }
-.public-header > a img { width: 170px; height: auto; }
-.public-validation { max-width: 760px; padding: 36px; margin: 36px auto; background: white; border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow); }
-.public-validation h1 { font-size: 29px; }
-.public-instructions { margin: 14px 0 26px; font-size: 14px; }
-.public-validation > form { max-width: none; gap: 18px; }
-.public-query-form > .button { align-self: flex-start; min-width: 150px; }
-.public-query-form .field { gap: 10px; }
-.public-query-form .field label { font-size: 13px; }
-.public-query-form input { font-size: 16px; letter-spacing: .5px; min-height: 50px; }
-.public-result { padding-top: 26px; border-top: 1px solid var(--border); margin-top: 28px; }
+/* Public validation shares the authentication layout and its quiet, left-aligned form. */
+.public-shell { background: #fafcfe; }
+.public-auth-content { width: 100%; max-width: 380px; min-width: 0; }
+.public-validation { width: 100%; max-width: none; padding: 0; margin: 0; overflow: visible; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+.public-page-heading { padding: 0; margin: 0; color: var(--text); background: transparent; border: 0; }
+.public-page-heading h1 { max-width: none; margin: 0; color: var(--text); font-size: 30px; line-height: 1.25; letter-spacing: -.8px; overflow-wrap: anywhere; }
+.public-instructions { max-width: none; margin: 12px 0 0; color: var(--muted); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
+.public-validation > form { max-width: none; gap: 22px; }
+.public-query-form { padding: 0; }
+.public-query-form .field { min-width: 0; }
+.public-query-form input { min-width: 0; font-size: 16px; }
+.public-result { margin: 24px 0 0; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .public-result:focus { outline: none; }
-.public-result:focus-visible { outline: 2px solid var(--accent); outline-offset: 8px; }
+.public-result:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .result-feedback { display: flex; align-items: flex-start; gap: 10px; }
 .result-feedback > svg { flex: 0 0 20px; margin-top: 1px; }
-.public-record-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; margin: 18px 0 24px; }
+.public-result .document-viewer { margin: 20px 0; }
+.public-record-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; margin: 18px 0 8px; }
 .public-record-fields dt { font-size: 12px; }
-.public-record-fields dd { font-size: 15px; }
-.public-footer { color: var(--muted); font-size: 11px; text-align: center; padding: 0 20px 32px; }
+.public-record-fields dd { font-size: 15px; overflow-wrap: anywhere; }
+.public-access > form { padding: 0; }
+.public-access .auth-link { min-height: 44px; display: inline-flex; align-items: center; align-self: flex-start; font-size: 13px; }
 .retry-button { border: 0; padding: 0; background: transparent; color: inherit; font-size: 12px; }
-@media (max-width: 767px) { .public-header { padding: 20px; } .public-header > a img { width: 115px; } .public-header .brand { font-size: 22px; } .public-validation { padding: 26px 22px; margin: 24px 16px; border-radius: 14px; } .public-validation h1 { font-size: 25px; } .public-query-form > .button { width: 100%; } .public-record-fields { grid-template-columns: 1fr; } .public-validation .help { font-size: 12px; } }
+.public-install > p { flex-basis: 100%; }
+@media (max-width: 767px) { .public-auth-content { max-width: 400px; } .public-page-heading h1 { font-size: 29px; } .public-record-fields { grid-template-columns: 1fr; } .public-validation .help { font-size: 12px; } .public-install { max-width: 400px; } .public-install-actions > .help { display: none; } }
 .create-validation-form { max-width: 820px; }
 .image-fallback { padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; color: var(--muted); }
 .image-fallback p { font-size: 13px; }
@@ -670,13 +671,14 @@ summary:focus-visible { outline: 3px solid var(--accent); outline-offset: -4px; 
 .viewer-help { display: flex; align-items: flex-start; gap: 8px; padding: 14px 16px; line-height: 1.7; font-size: 12px; border-top: 1px solid var(--border); }
 .viewer-help svg { flex: 0 0 15px; margin-top: 3px; }
 @media (max-width: 767px) { .document-viewport { height: clamp(280px, 50vh, 420px); } .viewer-fit { padding: 8px 10px; } .document-viewer-toolbar { gap: 0; padding: 8px; } }
-.public-install { max-width: 760px; margin: 20px auto -16px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; padding: 0 4px; }
+.public-install { max-width: 920px; margin: 0 auto 24px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; padding: 0 20px; }
 .public-install > div { display: flex; align-items: center; gap: 8px; }
 .public-install > div:first-child { font-size: 12px; color: var(--muted); }
 .public-install .button { font-size: 12px; }
 .public-install-actions > .help { font-size: 11px; }
 .public-install > p { flex-basis: 100%; }
-@media (max-width: 767px) { .public-install { margin: 16px 20px -6px; gap: 0; } .public-install > div:first-child { font-size: 11px; } .public-install-actions > .help { display: none; } }
+@media (max-width: 767px) { .public-install { margin: 0 16px 20px; gap: 0; } .public-install > div:first-child { font-size: 11px; } .public-install-actions > .help { display: none; } }
+.public-install { width: 100%; max-width: none; margin: 22px 0 0; padding: 16px 0 0; border-top: 1px solid var(--border); }
 
 /* Image catalog: bounded server pages with a shared list/gallery anatomy. */
 .catalog-heading { margin-bottom: 22px; }

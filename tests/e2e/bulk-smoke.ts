@@ -93,7 +93,7 @@ with zipfile.ZipFile(os.path.join(root,'imagenes.zip'),'w',zipfile.ZIP_STORED) a
   await screenshot(page, "bulk-edit-1440");
   const validation = await prisma.validation.findUniqueOrThrow({ where: { id } });
   await publicPage.goto(`${base}/v/${validation.publicToken}`);
-  await publicPage.getByLabel("Alfanumérico", { exact: true }).fill("4frs5");
+  await publicPage.getByLabel("Código alfanumérico", { exact: true }).fill("4frs5");
   await publicPage.getByRole("button", { name: "Consultar", exact: true }).click();
   await publicPage.getByText("0001", { exact: true }).waitFor();
   await publicPage.waitForFunction(() => { const image = document.querySelector<HTMLCanvasElement>('.document-canvas[data-state="ready"]'); return image?.dataset.imageWidth === "720"; });
@@ -102,7 +102,7 @@ with zipfile.ZipFile(os.path.join(root,'imagenes.zip'),'w',zipfile.ZIP_STORED) a
   await publicPage.setViewportSize({ width: 390, height: 844 });
   await screenshot(publicPage, "bulk-public-390");
   assert(await publicPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
-  await publicPage.getByLabel("Alfanumérico", { exact: true }).fill("DOESNOTEXIST"); await publicPage.getByRole("button", { name: "Consultar", exact: true }).click();
+  await publicPage.getByLabel("Código alfanumérico", { exact: true }).fill("DOESNOTEXIST"); await publicPage.getByRole("button", { name: "Consultar", exact: true }).click();
   await publicPage.locator(".public-result .feedback.error").waitFor();
   assert.equal(await publicPage.locator(".document-canvas").count(), 0);
   await selectTab(page, "Apariencia");
@@ -113,7 +113,7 @@ with zipfile.ZipFile(os.path.join(root,'imagenes.zip'),'w',zipfile.ZIP_STORED) a
   await page.getByRole("button", { name: "Desactivar validación", exact: true }).waitFor();
   await publicPage.reload();
   const responseWait = publicPage.waitForResponse(response => response.url().includes("/verify"));
-  await publicPage.getByLabel("Alfanumérico", { exact: true }).fill("4frs5"); await publicPage.getByRole("button", { name: "Consultar", exact: true }).click();
+  await publicPage.getByLabel("Código alfanumérico", { exact: true }).fill("4frs5"); await publicPage.getByRole("button", { name: "Consultar", exact: true }).click();
   const body = await (await responseWait).json(); assert(!JSON.stringify(body).includes("Campo privado"));
   await selectTab(page, "Resumen");
   await page.getByRole("button", { name: "Actualizar estadísticas", exact: true }).click();

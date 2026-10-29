@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { PublicInstall } from "@/components/public-install";
 import { notFound } from "next/navigation";
 import { getPublicValidation } from "@/features/public/service";
-import Image from "next/image";
 import { Brand } from "@/components/brand";
+import { AuthStory } from "@/components/auth-story";
 import { PublicValidation } from "@/components/public-validation";
 import { PublicAccessForm } from "@/components/public-access-form";
 import { cookies } from "next/headers";
@@ -22,5 +22,5 @@ export default async function PublicValidationPage({ params }: { params: Promise
   const validation = await getPublicValidation(publicToken);
   if (!validation) notFound();
   const allowed = !validation.requireClientAccess || await hasPublicValidationAccess(validation.id, (await cookies()).get(PUBLIC_ACCESS_COOKIE)?.value);
-  return <div className="public-shell"><header className="public-header"><Brand /><a href="https://computerforms.com.mx/" target="_blank" rel="noopener noreferrer"><Image src="/brand/computerforms.svg" width={180} height={25} alt="Computer Forms" unoptimized /></a></header>{allowed && <PublicInstall />}<main id="main-content">{allowed ? <PublicValidation token={publicToken} title={validation.title} instructions={validation.instructions} /> : <PublicAccessForm token={publicToken} />}</main><footer className="public-footer">Valweb · Una plataforma de Computer Forms</footer></div>;
+  return <div className="auth-shell public-shell"><header className="auth-header"><Brand /><a className="company-link" href="https://computerforms.com.mx/" target="_blank" rel="noopener noreferrer">Computer Forms</a></header><div className="auth-grid"><AuthStory publicPage /><main id="main-content" className="auth-main"><div className="public-auth-content">{allowed ? <PublicValidation token={publicToken} title={validation.title} instructions={validation.instructions} /> : <PublicAccessForm token={publicToken} />}{allowed && <PublicInstall />}</div></main></div><footer className="auth-footer"><span>Valweb · Computer Forms</span><span>Consulta documental de acceso compartido</span></footer></div>;
 }
