@@ -10,7 +10,7 @@ const dotenv = load("dotenv");
 async function main() {
   const configPath = process.argv[2];
   if (!configPath) throw new Error("Missing configuration file");
-  dotenv.config({ path: configPath, override: true });
+  dotenv.config({ path: configPath, override: true, quiet: true });
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
     const table = 'public."ImageStorageLocation"';

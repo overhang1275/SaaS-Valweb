@@ -1,10 +1,12 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { prisma } from "../src/lib/prisma";
 import { handlePath, openImageStorageRoot } from "../src/features/images/filesystem";
+
+dotenv.config({ quiet: true });
 
 export async function managedImageBackupPaths() {
   const tables = await prisma.$queryRaw<Array<{ exists: string | null }>>`SELECT to_regclass('public."ImageStorageLocation"')::text AS exists`;
