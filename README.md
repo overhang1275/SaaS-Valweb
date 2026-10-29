@@ -99,13 +99,14 @@ Activar exige una cuenta activa y registros reales en una base publicada. Si la 
 
 ## Carga masiva CSV e imágenes
 
-1. En **Editar → Registros e imágenes → Carga masiva de registros e imágenes**, sube un CSV UTF-8 con encabezados.
+1. En **Editar → Registros → Carga masiva**, sube un CSV UTF-8 con encabezados.
 2. El worker lee los encabezados con DuckDB; el panel pide asignar `folio`, `alfanum`, y opcionalmente `tipo` y `otro` (también reconoce el encabezado `tro`).
 3. Selecciona reemplazar la base o agregar/actualizar por alfanumérico. Se detectan filas vacías, datos inválidos y duplicados sin distinción de mayúsculas; el reporte incluye muestras de errores. Una base con errores no se publica.
 4. Revisa el resumen y publica. El dataset previo se conserva hasta ese momento. Dos importaciones concurrentes no pueden sobrescribir silenciosamente una base publicada después de su análisis.
-5. Selecciona «Imágenes ZIP o imagen individual» y carga un ZIP con `4frs5.png`, `ABC123.jpg`, etc. Admite JPG/JPEG/PNG/WebP estáticos. El nombre sin extensión determina el alfanumérico; también admite carpetas interiores seguras. Los duplicados en el mismo ZIP se rechazan.
-6. El worker inspecciona el ZIP y procesa cada imagen por separado. Guarda avances cada100 archivos. El catálogo cambia en una transacción cuando todo el lote es válido; no publica un catálogo parcial. Reemplazar imágenes existentes requiere marcarlo o confirmar «Reintentar reemplazando existentes».
-7. Activa cuando base e imágenes estén completas. El catálogo permite buscar por prefijo, ver50 imágenes por página y eliminarlas.
+5. En **Editar → Imágenes**, selecciona el destino local o NFS. El administrador configura las rutas globales desde **Ajustes generales**. La carpeta por validación se llama `<tenantUUID>_<validationUUID>` y contiene `por_procesar/` para originales FTP y `procesadas/` para imágenes administradas.
+6. Para cargas web, usa «Imágenes ZIP o imagen individual» y carga un ZIP con `4frs5.png`, `ABC123.jpg`, etc. Admite JPG/JPEG/PNG/WebP estáticos. El nombre sin extensión determina el alfanumérico; también admite carpetas interiores seguras. Los duplicados en el mismo ZIP se rechazan.
+7. Para recibir imágenes por FTP, deposítalas directamente en `por_procesar/` y termina la carga antes de pulsar **Procesar**. Se captura una copia privada para que los reintentos no dependan de FTP. Las imágenes nuevas se publican automáticamente; los reemplazos se muestran para confirmación. Solo después de publicar se elimina cada original cuya identidad y huella sigan iguales. Errores, cancelaciones y reemplazos sin confirmar se conservan.
+8. Activa cuando base e imágenes estén completas. El catálogo permite buscar por prefijo, ver50 imágenes por página y eliminarlas.
 
 El panel muestra recepción en porcentaje, estado, archivos procesados, historial reciente y reporte descargable. El reporte indica la causa por archivo: formato real distinto de la extensión, límite de bytes/píxeles, animación, duplicados o fallo del decodificador. Las advertencias de JPEG se rechazan en modo estricto y se muestran con explicación en español y detalle técnico; por ejemplo, un byte sobrante antes del marcador JPEG 0xd9. No se reparan archivos automáticamente. Puedes cerrar la pantalla mientras se procesa, cancelar o reintentar desde el archivo recibido. Los reintentos de imágenes reutilizan las ya procesadas de ese trabajo. La recepción HTTP no es reanudable: si la conexión se corta antes de recibir el archivo completo hay que volver a enviarlo.
 
@@ -118,7 +119,7 @@ Límites iniciales:
 - ZIP:50GiB recibido y100GiB descomprimido por defecto, configurables con `MAX_ZIP_BYTES` y `MAX_EXPANDED_BYTES`. Se rechazan rutas inseguras, enlaces simbólicos, cifrado, demasiadas entradas y compresión desproporcionada. Nunca se extraen rutas del ZIP al disco.
 - Recepción:dos cargas simultáneas por proceso, diez por usuario/hora, límite de una hora y comprobación de espacio. Reserva disco para el original, imágenes normalizadas, staging y bases antiguas;50,000 imágenes de2MiB son aproximadamente98GiB solo de originales sin compresión.
 
-`IMPORT_STORAGE_DIR` usa `var/imports`; debe ser un volumen privado persistente compartido con el worker, junto con `IMAGE_STORAGE_DIR`. Los originales, staging y datasets retirados se conservan para diagnóstico/reintentos; **no hay purga automática de su historial**. Planifica espacio y una política operativa de retención antes de producción. No borres staging de trabajos que puedan reintentarse. `images:cleanup` protege tanto imágenes publicadas como staging.
+`IMPORT_STORAGE_DIR` usa `var/imports`; debe ser un volumen privado persistente compartido con el worker. `IMAGE_STORAGE_DIR` conserva la raíz histórica, mientras las raíces local/NFS nuevas se persisten desde Ajustes generales. Web y worker deben ver los mismos montajes con permisos de lectura/escritura; en Linux/LXC, NFS debe estar montado por el host o el sistema operativo, no por la aplicación. Asigna al usuario FTP permisos para escribir en `por_procesar/` sin hacer públicos los archivos. Reserva espacio para originales, captura y WebP normalizadas.
 
 ## Almacenamiento privado de imágenes
 
@@ -128,7 +129,7 @@ La vista previa pasa por `GET /api/validations/:id/image`, exige sesión vigente
 
 El nuevo archivo se guarda antes de cambiar la referencia en una transacción. El anterior se retira después del commit. Si falla la confirmación de commit, se comprueba la referencia antes de limpiar para no borrar una imagen que sí quedó guardada. Un fallo de limpieza deja un archivo privado huérfano, sin URL pública.
 
-Ejecuta `npm run images:cleanup` desde una tarea programada de mantenimiento. Elimina únicamente archivos con nombre generado por la aplicación, sin referencias en PostgreSQL y con más de24horas de antigüedad. El comando utiliza la misma base y directorio configurados; revisa ambos al desplegar. No elimina imágenes vinculadas ni archivos recientes. S3/R2 requieren sustituir el módulo de almacenamiento; no se incorporan en esta fase.
+Ejecuta `npm run images:cleanup` desde una tarea programada. Elimina solo WebP huérfanas antiguas dentro de `procesadas/` y capturas de trabajos terminales con más de24horas; conserva archivos publicados, `por_procesar/` y capturas de trabajos reintentables o pendientes de revisión. El instalador incluye en el respaldo cada raíz persistida que use la base y falla si un destino requerido no está disponible. Para respaldo manual, incluye también las raíces local/NFS configuradas y revisa que el montaje esté activo.
 
 ## Interfaz de Computer Forms
 

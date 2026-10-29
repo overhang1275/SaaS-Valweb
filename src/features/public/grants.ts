@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 
-const grantSchema = z.object({ validationId: z.uuid(), datasetId: z.uuid(), imageId: z.uuid().nullable(), storageKey: z.string().max(100), viewerHash: z.string().regex(/^[a-f0-9]{64}$/), exp: z.number() });
+const grantSchema = z.object({ validationId: z.uuid(), datasetId: z.uuid(), imageId: z.uuid().nullable(), storageKey: z.string().max(128), viewerHash: z.string().regex(/^[a-f0-9]{64}$/), exp: z.number() });
 type Grant = z.infer<typeof grantSchema>;
 function key() {
   if (!process.env.NEXTAUTH_SECRET) throw new Error("Falta configurar el secreto de sesión.");

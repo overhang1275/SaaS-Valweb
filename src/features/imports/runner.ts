@@ -18,6 +18,7 @@ import { ImageError, MAX_IMAGE_BYTES } from "@/features/images/limits";
 import { importRoot, sourcePath } from "./files";
 import { mappingSchema } from "./service";
 import { inspectImageArchive, MAX_EXPANDED_BYTES } from "./archive";
+import { captureDirectoryImport, cleanupPublishedDirectoryOriginals, readDirectorySnapshot, readDirectorySnapshotFile } from "./directory";
 import type { ImportJob, Prisma } from "@/generated/prisma/client";
 
 class ImportError extends Error {}
@@ -139,6 +140,14 @@ async function processCsv(job: ImportJob) {
 }
 
 async function processImages(job: ImportJob) {
+  const isDirectory = job.sourceKey === `${job.id}.directory`;
+  if (isDirectory) await captureDirectoryImport(job);
+  const directoryTotal = isDirectory ? (await prisma.importJob.findUniqueOrThrow({ where: { id: job.id }, select: { total: true } })).total : 1;
+  if (isDirectory && directoryTotal === 0) {
+    await prisma.importJob.update({ where: { id: job.id }, data: { status: "COMPLETED", processed: 0, phase: "Carpeta vacía", summary: { new: 0, replacements: 0, unchanged: 0, errors: 0 } } });
+    return;
+  }
+  const target = job.imageStorageKind ? { kind: job.imageStorageKind, tenantId: job.tenantId, validationId: job.validationId } : undefined;
   // The persisted source is immutable; retries reuse already validated staging files.
   const cached = new Set((await prisma.importImageItem.findMany({ where: { jobId: job.id }, select: { alfanumNormalized: true } })).map(item => item.alfanumNormalized));
   const seen = new Set<string>();
@@ -152,7 +161,7 @@ async function processImages(job: ImportJob) {
     if (space.bavail * space.bsize < 2 * 1024 ** 3) throw new ImportError("No hay espacio suficiente para continuar. Libera espacio y reintenta sin subir de nuevo.");
     await updateProgress(job.id, { processed, phase: "Validando imágenes" });
   }
-  async function image(filename: string, input: Buffer) {
+  async function image(filename: string, input: Buffer, sourceHash?: string) {
     processed++;
     if (processed > 50_000) throw new ImportError("El lote supera las 50,000 imágenes permitidas.");
     try {
@@ -161,10 +170,19 @@ async function processImages(job: ImportJob) {
       if (seen.has(normalized)) throw new ImageError(400, `El alfanumérico ${normalized} aparece más de una vez en el lote.`);
       seen.add(normalized);
       if (cached.has(normalized)) { if (processed % 100 === 0) await flush(); return; }
+      if (sourceHash) {
+        const current = await prisma.recordImage.findUnique({ where: { tenantId_validationId_alfanumNormalized: { tenantId: job.tenantId, validationId: job.validationId, alfanumNormalized: normalized } }, select: { id: true, sourceHash: true } });
+        if (current?.sourceHash === sourceHash) { if (processed % 100 === 0) await flush(); return; }
+        const prepared = await prepareImage(input, basename(filename), mimeFor(filename));
+        const key = await writeImageFile(prepared.data, target);
+        batch.push({ jobId: job.id, alfanumNormalized: normalized, originalName: basename(filename), storageKey: key, width: prepared.width, height: prepared.height, size: prepared.data.length, sourceHash, replacesImageId: current?.id });
+        if (processed % 100 === 0) await flush();
+        return;
+      }
       const extension = extname(name).toLowerCase();
       const mime = extension === ".jpg" || extension === ".jpeg" ? "image/jpeg" : extension === ".png" ? "image/png" : "image/webp";
       const prepared = await prepareImage(input, name, mime);
-      const key = await writeImageFile(prepared.data);
+      const key = await writeImageFile(prepared.data, target);
       batch.push({ jobId: job.id, alfanumNormalized: normalized, originalName: name, storageKey: key, width: prepared.width, height: prepared.height, size: prepared.data.length });
     } catch (cause) {
       if (cause && typeof cause === "object" && "code" in cause && ["ENOSPC", "EACCES", "EROFS", "EDQUOT"].includes(String(cause.code))) throw new ImportError("No se pudieron guardar imágenes. Revisa el espacio y los permisos; después reintenta sin subir el ZIP de nuevo.");
@@ -176,7 +194,9 @@ async function processImages(job: ImportJob) {
     }
     if (processed % 100 === 0) await flush();
   }
-  if (job.sourceKey.endsWith(".zip")) {
+  if (isDirectory) {
+    for await (const source of readDirectorySnapshot(job.id)) await image(source.filename, await readDirectorySnapshotFile(job.id, source), source.sourceHash);
+  } else if (job.sourceKey.endsWith(".zip")) {
     const inspected = await inspectImageArchive(sourcePath(job.sourceKey));
     const zip = await openPromise(sourcePath(job.sourceKey), { lazyEntries: true, validateEntrySizes: true, strictFileNames: true });
     try {
@@ -209,21 +229,38 @@ async function processImages(job: ImportJob) {
     await updateProgress(job.id, { status: "FAILED", total: processed, error: "El lote no se publicó. Corrige los archivos indicados.", summary: { errorCount, issues } });
     return;
   }
+  if (isDirectory) {
+    const replacements = await prisma.importImageItem.count({ where: { jobId: job.id, replacesImageId: { not: null } } });
+    if (replacements) {
+      const newCount = await prisma.importImageItem.count({ where: { jobId: job.id, replacesImageId: null } });
+      await updateProgress(job.id, { status: "REVIEW", phase: "Revisa los reemplazos antes de publicar", processed, total: processed, summary: { new: newCount, replacements, unchanged: processed - newCount - replacements, errors: errorCount } });
+      return;
+    }
+  }
   const actor = await actorFor(job);
   const previous = await prisma.$transaction(async tx => {
     const user = await currentActor(tx, actor);
     const validation = await lockValidation(tx, user, job.validationId);
+    if (validation.imageStorageKind !== job.imageStorageKind) throw new ImportError("El destino de imágenes cambió. Inicia una nueva carga.");
     const current = await tx.importJob.findUniqueOrThrow({ where: { id: job.id } });
     if (current.status === "CANCELLED") throw new ImportError("Importación cancelada.");
     if (current.status === "COMPLETED") return [];
+    if (isDirectory && validation.imageRevision !== job.baseImageRevision) throw new ImportError("El catálogo cambió desde el análisis. Vuelve a procesar la carpeta antes de publicar.");
     const conflicts = await tx.$queryRaw<Array<{ storageKey: string }>>`SELECT r."storageKey" FROM "RecordImage" r JOIN "ImportImageItem" i ON i."alfanumNormalized"=r."alfanumNormalized" WHERE i."jobId"=${job.id}::uuid AND r."tenantId"=${job.tenantId}::uuid AND r."validationId"=${job.validationId}::uuid`;
-    const existingCount = await tx.recordImage.count({ where: { validationId: job.validationId } });
-    if (existingCount + processed - conflicts.length > 50000) throw new ImportError("La validación supera el máximo de 50,000 imágenes. Elimina o reemplaza imágenes antes de ampliar el catálogo.");
+    const [existingCount, stagedCount] = await Promise.all([tx.recordImage.count({ where: { validationId: job.validationId } }), tx.importImageItem.count({ where: { jobId: job.id } })]);
+    if (existingCount + stagedCount - conflicts.length > 50000) throw new ImportError("La validación supera el máximo de 50,000 imágenes. Elimina o reemplaza imágenes antes de ampliar el catálogo.");
     if (conflicts.length && !job.replaceImages) throw new ImportError("Ya existen imágenes de esos alfanuméricos. Usa reintentar reemplazando existentes para aprovechar el archivo ya recibido.");
-    await tx.$executeRaw`INSERT INTO "RecordImage" (id,"tenantId","validationId","alfanumNormalized","originalName","storageKey",width,height,size,"createdAt","updatedAt") SELECT id,${job.tenantId}::uuid,${job.validationId}::uuid,"alfanumNormalized","originalName","storageKey",width,height,size,now(),now() FROM "ImportImageItem" WHERE "jobId"=${job.id}::uuid ON CONFLICT ("tenantId","validationId","alfanumNormalized") DO UPDATE SET "originalName"=EXCLUDED."originalName","storageKey"=EXCLUDED."storageKey",width=EXCLUDED.width,height=EXCLUDED.height,size=EXCLUDED.size,"updatedAt"=now()`;
+    await tx.$executeRaw`INSERT INTO "RecordImage" (id,"tenantId","validationId","alfanumNormalized","originalName","storageKey",width,height,size,"sourceHash","createdAt","updatedAt") SELECT id,${job.tenantId}::uuid,${job.validationId}::uuid,"alfanumNormalized","originalName","storageKey",width,height,size,"sourceHash",now(),now() FROM "ImportImageItem" WHERE "jobId"=${job.id}::uuid ON CONFLICT ("tenantId","validationId","alfanumNormalized") DO UPDATE SET "originalName"=EXCLUDED."originalName","storageKey"=EXCLUDED."storageKey",width=EXCLUDED.width,height=EXCLUDED.height,size=EXCLUDED.size,"sourceHash"=EXCLUDED."sourceHash","updatedAt"=now()`;
+    await tx.validation.update({ where: { id: job.validationId }, data: { imageRevision: { increment: 1 } } });
     await tx.importJob.update({ where: { id: job.id }, data: { status: "COMPLETED", phase: "Imágenes publicadas", total: processed, processed, summary: { images: processed, replaced: conflicts.length } } });
     await tx.auditLog.create({ data: { actorId: user.id, tenantId: validation.tenantId, targetId: validation.id, action: "BULK_IMAGES_PUBLISHED", metadata: { jobId: job.id, images: processed } } });
     return conflicts.map(row => row.storageKey);
   }, { timeout: 120000 });
   for (const key of previous) await removeImageFile(key).catch(() => console.error("IMAGE_CLEANUP_FAILED"));
+  if (isDirectory) {
+    const cleanupPending = await cleanupPublishedDirectoryOriginals(job);
+    if (cleanupPending) await prisma.importJob.update({ where: { id: job.id }, data: { phase: `${cleanupPending} originales siguen pendientes de limpieza` } });
+  }
 }
+
+function mimeFor(filename: string) { const extension = extname(filename).toLowerCase(); return extension === ".jpg" || extension === ".jpeg" ? "image/jpeg" : extension === ".png" ? "image/png" : "image/webp"; }

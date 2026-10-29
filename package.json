@@ -26,6 +26,7 @@
     "start:test": "node scripts/start-test-server.mjs start",
     "test:e2e:pwa": "node --import tsx tests/e2e/public-pwa-smoke.ts",
     "test:e2e:catalog": "node --import tsx tests/e2e/image-catalog-smoke.ts",
+    "test:e2e:image-storage": "node --import tsx tests/e2e/image-storage-smoke.ts",
     "test:e2e:filters": "node --import tsx tests/e2e/identity-filters-smoke.ts"
   },
   "dependencies": {

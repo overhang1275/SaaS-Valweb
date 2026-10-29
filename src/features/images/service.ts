@@ -3,7 +3,7 @@ import { currentActor, type Actor } from "@/features/identity/service";
 import { getValidation, lockValidation } from "@/features/validations/service";
 import { ImageError } from "./limits";
 import { prepareImage } from "./processing";
-import { writeImageFile, removeImageFile } from "./storage";
+import { writeImageFile, removeImageFile, imageTarget } from "./storage";
 
 async function retireImage(key: string | null) {
   if (!key) return;
@@ -12,14 +12,16 @@ async function retireImage(key: string | null) {
 }
 
 export async function replaceValidationImage(actor: Actor, id: string, input: Buffer, filename: string, mime: string) {
-  if (!await getValidation(actor, id)) throw new ImageError(404, "La validación no está disponible.");
+  const validation = await getValidation(actor, id);
+  if (!validation) throw new ImageError(404, "La validación no está disponible.");
   const image = await prepareImage(input, filename, mime);
-  const key = await writeImageFile(image.data);
+  const key = await writeImageFile(image.data, imageTarget(validation));
   let previous: string | null;
   try {
     previous = await prisma.$transaction(async tx => {
       const user = await currentActor(tx, actor);
       const row = await lockValidation(tx, user, id);
+      if (row.imageStorageKind !== validation.imageStorageKind) throw new ImageError(409, "El destino de imágenes cambió. Vuelve a cargar la imagen.");
       await tx.validation.update({ where: { id }, data: { imageKey: key, imageMime: "image/webp", imageSize: image.data.length, imageWidth: image.width, imageHeight: image.height } });
       await tx.auditLog.create({ data: { actorId: user.id, tenantId: row.tenantId, targetId: id, action: "VALIDATION_IMAGE_REPLACED" } });
       return row.imageKey;

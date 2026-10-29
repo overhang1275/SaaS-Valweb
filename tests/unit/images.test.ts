@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm, utimes } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { prepareImage, readImageBody, reserveImageUpload } from "../../src/features/images/processing";
-import { writeImageFile, readImageFile, removeImageFile, purgeOrphanImages } from "../../src/features/images/storage";
+import { writeImageFile, readImageFile, removeImageFile, purgeOrphanImages, purgeManagedOrphanImages } from "../../src/features/images/storage";
+import { prisma } from "../../src/lib/prisma";
 
 let directory: string;
 beforeAll(async () => {
@@ -72,6 +74,24 @@ describe("private image processing", () => {
     await expect(readImageFile(old)).rejects.toThrow();
     expect((await readImageFile(live)).toString()).toBe("live");
     expect((await readImageFile(recent)).toString()).toBe("recent");
+  });
+  it("cleans only old generated files under managed procesadas folders", async () => {
+    const root = join(directory, "managed");
+    const folderName = `${randomUUID()}_${randomUUID()}`, folder = join(root, folderName), processed = join(folder, "procesadas"), inbox = join(folder, "por_procesar");
+    await mkdir(processed, { recursive: true }); await mkdir(inbox);
+    const orphan = `${randomUUID()}.webp`, live = `${randomUUID()}.webp`, recent = `${randomUUID()}.webp`;
+    await writeFile(join(processed, orphan), "orphan"); await writeFile(join(processed, live), "live"); await writeFile(join(processed, recent), "recent");
+    await writeFile(join(inbox, "SOURCE123.png"), "FTP source");
+    const past = new Date(Date.now() - 48 * 3600000);
+    await utimes(join(processed, orphan), past, past); await utimes(join(processed, live), past, past);
+    const spy = vi.spyOn(prisma.imageStorageLocation, "findMany").mockResolvedValue([{ kind: "LOCAL", rootPath: root, updatedAt: new Date() }]);
+    try {
+      expect(await purgeManagedOrphanImages(new Set([`v1:LOCAL:${folderName}:${live}`]))).toBe(1);
+      await expect(readFile(join(processed, orphan))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(join(processed, live), "utf8")).toBe("live");
+      expect(await readFile(join(processed, recent), "utf8")).toBe("recent");
+      expect(await readFile(join(inbox, "SOURCE123.png"), "utf8")).toBe("FTP source");
+    } finally { spy.mockRestore(); }
   });
   it("bounds simultaneous uploads and releases admission idempotently", () => {
     const first = reserveImageUpload(), second = reserveImageUpload();

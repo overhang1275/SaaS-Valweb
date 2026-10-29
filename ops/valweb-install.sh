@@ -162,14 +162,20 @@ fi
 
 if [[ $INSTALLED != ninguno ]]; then
   [[ -f $CONFIG ]] || die 'Hay un release existente pero falta /etc/valweb/.env. Recupéralo antes de actualizar.'
+  RELEASE="$APP/current"
   OLD_LINK=$(readlink -f "$APP/current")
-  say 'Creando respaldo antes de detener servicios.'
+  say 'Deteniendo servicios y creando un respaldo coherente.'
   STAMP=$(date -u +%Y%m%dT%H%M%SZ)
   if ! grep -q '^IMAGE_STORAGE_DIR=' "$CONFIG" && [[ -d $APP/current/var/assets ]] && [[ -z $(find "$DATA/images" -mindepth 1 -print -quit) ]]; then cp -a "$APP/current/var/assets/." "$DATA/images/"; fi
   if ! grep -q '^IMPORT_STORAGE_DIR=' "$CONFIG" && [[ -d $APP/current/var/imports ]] && [[ -z $(find "$DATA/imports" -mindepth 1 -print -quit) ]]; then cp -a "$APP/current/var/imports/." "$DATA/imports/"; fi
   chown -R valweb:valweb "$DATA"
+  systemctl stop "$SERVICE" 2>/dev/null || true
+  userctl stop "$WORKER" 2>/dev/null || true
+  SERVICES_STOPPED=1
   (cd "$APP/current" && node --input-type=commonjs -e 'require("dotenv").config({path:process.argv[1],override:true}); const {spawnSync}=require("node:child_process"); const u=new URL(process.env.DATABASE_URL); const env={...process.env,PGHOST:u.hostname,PGPORT:u.port||"5432",PGUSER:decodeURIComponent(u.username),PGPASSWORD:decodeURIComponent(u.password),PGDATABASE:decodeURIComponent(u.pathname.slice(1)),PGSSLMODE:u.searchParams.get("sslmode")||"disable"}; const r=spawnSync("pg_dump",["--format=custom","--no-owner","--no-acl","--file",process.argv[2],"--dbname",env.PGDATABASE],{env,stdio:"inherit"}); process.exit(r.status??1)' "$CONFIG" "$BACKUPS/$STAMP.dump")
-  (cd "$APP/current" && node --input-type=commonjs -e 'require("dotenv").config({path:process.argv[1],override:true}); const fs=require("node:fs"),{spawnSync}=require("node:child_process"); const paths=["var/lib/valweb","etc/valweb",process.env.IMAGE_STORAGE_DIR,process.env.IMPORT_STORAGE_DIR].filter(Boolean).map(p=>p.replace(/^\/+/,"")).filter((p,i,a)=>a.indexOf(p)===i&&fs.existsSync("/"+p)); const r=spawnSync("tar",["-C","/","-czf",process.argv[2],"--",...paths],{stdio:"inherit"}); process.exit(r.status??1)' "$CONFIG" "$BACKUPS/$STAMP-data.tar.gz")
+  IMAGE_PATHS_JSON=$(run_as_valweb node --import tsx scripts/image-backup-paths.ts) || die 'No se pudieron verificar los destinos de imágenes para el respaldo.'
+  mapfile -t PERSISTED_IMAGE_PATHS < <(jq -er '.[]' <<<"$IMAGE_PATHS_JSON")
+  (cd "$APP/current" && node --input-type=commonjs -e 'require("dotenv").config({path:process.argv[1],override:true}); const fs=require("node:fs"),{spawnSync}=require("node:child_process"); const paths=["var/lib/valweb","etc/valweb",process.env.IMAGE_STORAGE_DIR,process.env.IMPORT_STORAGE_DIR,...process.argv.slice(3)].filter(Boolean).map(p=>p.replace(/^\/+/,"")).filter((p,i,a)=>a.indexOf(p)===i&&fs.existsSync("/"+p)); const r=spawnSync("tar",["-C","/","-czf",process.argv[2],"--",...paths],{stdio:"inherit"}); process.exit(r.status??1)' "$CONFIG" "$BACKUPS/$STAMP-data.tar.gz" "${PERSISTED_IMAGE_PATHS[@]}")
   chmod 600 "$BACKUPS/$STAMP"* 2>/dev/null || true
 fi
 

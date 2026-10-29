@@ -75,7 +75,7 @@ try {
   assert.equal(await clientPage.evaluate(() => navigator.clipboard.readText()), link);
   console.info("PASS: creación cliente, UUID público separado y enlace copiado");
 
-  await selectTab(clientPage, "Registros e imágenes");
+  await selectTab(clientPage, "Imágenes");
   const imageEndpoint = `${base}/api/validations/${id}/image`;
   await mkdir("docs/design-audit/screenshots", { recursive: true });
   await clientPage.setViewportSize({ width: 390, height: 844 });
@@ -181,14 +181,14 @@ try {
   await otherPage.getByRole("heading", { name: "Acceso a la consulta", exact: true }).waitFor();
   await otherPage.getByLabel("Correo electrónico", { exact: true }).fill(emails.b);
   await otherPage.getByLabel("Contraseña", { exact: true }).fill(password);
-  await otherPage.getByRole("button", { name: "Continuar", exact: true }).click();
+  await otherPage.getByRole("button", { name: "Entrar", exact: true }).click();
   await otherPage.getByText("El correo o la contraseña no son válidos para esta consulta.", { exact: true }).waitFor();
   assert.equal((await otherContext.request.post(`${base}/api/public/validations/${publicToken}/verify`, { data: { alfanum: "TEST001" }, headers: { Origin: base } })).status(), 401);
 
   await clientPage.goto(publicPage);
   await clientPage.getByLabel("Correo electrónico", { exact: true }).fill(emails.a);
   await clientPage.getByLabel("Contraseña", { exact: true }).fill(password);
-  await clientPage.getByRole("button", { name: "Continuar", exact: true }).click();
+  await clientPage.getByRole("button", { name: "Entrar", exact: true }).click();
   await clientPage.getByRole("heading", { name: "Consulta tu constancia actualizada", exact: true }).waitFor();
   assert.equal((await clientContext.request.post(`${base}/api/public/validations/${publicToken}/verify`, { data: { alfanum: "TEST001" }, headers: { Origin: base } })).status(), 200);
   await adminPage.getByLabel("Solicitar acceso con cuenta de cliente", { exact: true }).uncheck();

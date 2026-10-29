@@ -43,6 +43,10 @@ beforeEach(async () => {
 });
 afterAll(async () => { await prisma.$disconnect(); });
 describe('identity against PostgreSQL', () => {
+  it('keeps PostgreSQL timestamps aligned with the application clock', async () => {
+    const [row] = await prisma.$queryRaw<Array<{ now: Date }>>`SELECT now()`;
+    expect(Math.abs(row.now.getTime() - Date.now())).toBeLessThan(5000);
+  });
   it('enforces a rate limit atomically under concurrency', async () => {
     const results = await Promise.all(Array.from({ length: 8 }, () => limitRequest('test', 'same-key', 3, 60)));
     expect(results.filter(Boolean)).toHaveLength(3);

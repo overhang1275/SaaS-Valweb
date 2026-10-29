@@ -60,7 +60,7 @@ with zipfile.ZipFile(os.path.join(root,'imagenes.zip'),'w',zipfile.ZIP_STORED) a
   await page.getByLabel("Título público", { exact: true }).fill("Consulta tu constancia");
   await page.getByRole("button", { name: "Crear validación", exact: true }).click(); await page.waitForURL(/\/validaciones\/[a-f0-9-]+\/editar/);
   const id = page.url().match(/\/validaciones\/([^/]+)\//)![1], editUrl = `${base}/validaciones/${id}/editar`;
-  await selectTab(page, "Registros e imágenes");
+  await selectTab(page, "Registros");
   await page.getByLabel("Archivo CSV", { exact: true }).setInputFiles({ name: "registros.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
   await page.getByRole("button", { name: "Subir archivo", exact: true }).click();
   await jobReady(id, "CSV"); await page.reload();
@@ -71,7 +71,7 @@ with zipfile.ZipFile(os.path.join(root,'imagenes.zip'),'w',zipfile.ZIP_STORED) a
   await confirmAction(page, () => page.getByRole("button", { name: "Publicar base revisada", exact: true }).click());
   await page.getByText("Base publicada", { exact: true }).waitFor();
   assert(await page.getByRole("button", { name: "Activar validación", exact: true }).isDisabled());
-  await page.getByLabel("Tipo de carga", { exact: true }).selectOption("IMAGES");
+  await selectTab(page, "Imágenes");
   await page.getByLabel("Archivo ZIP o imagen", { exact: true }).setInputFiles(join(temporary, "imagenes.zip"));
   await page.getByRole("button", { name: "Subir archivo", exact: true }).click();
   const imagesJob = await jobReady(id, "IMAGES");

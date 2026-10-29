@@ -1,6 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { getActor } from "@/lib/auth";
-import { getImport, jobDto, configureImport, publishCsv, retryImport, cancelImport } from "@/features/imports/service";
+import { getImport, jobDto, configureImport, publishCsv, publishDirectoryImport, cleanupDirectoryImport, retryImport, cancelImport } from "@/features/imports/service";
 import { readBoundedJson } from "@/lib/request-json";
 import { z } from "zod";
 import { limitRequest } from "@/features/identity/rate-limit";
@@ -22,6 +22,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const body = z.object({ action: z.string(), mapping: z.unknown().optional(), mode: z.string().optional(), replaceImages: z.boolean().optional() }).parse(await readBoundedJson(request));
     if (body.action === "configure") await configureImport(actor, id, body);
     else if (body.action === "publish") await publishCsv(actor, id);
+    else if (body.action === "publish-images") await publishDirectoryImport(actor, id);
+    else if (body.action === "cleanup-images") await cleanupDirectoryImport(actor, id);
     else if (body.action === "retry") await retryImport(actor, id, body.replaceImages === true);
     else if (body.action === "cancel") await cancelImport(actor, id);
     else return Response.json({ message: "Operación no válida." }, { status: 400 });

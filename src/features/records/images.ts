@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { currentActor, type Actor } from "@/features/identity/service";
-import { lockValidation } from "@/features/validations/service";
-import { removeImageFile, writeImageFile } from "@/features/images/storage";
+import { getValidation, lockValidation } from "@/features/validations/service";
+import { removeImageFile, writeImageFile, imageTarget } from "@/features/images/storage";
 import { prepareImage } from "@/features/images/processing";
 import { ImageError } from "@/features/images/limits";
 import { Prisma } from "@/generated/prisma/client";
@@ -87,11 +87,13 @@ export async function deleteRecordImage(actor: Actor, validationId: string, id: 
   const key = await prisma.$transaction(async tx => {
     const user = await currentActor(tx, actor);
     const validation = await lockValidation(tx, user, validationId);
+    if (await tx.importJob.findFirst({ where: { validationId, status: "REVIEW", sourceKey: { endsWith: ".directory" } } })) throw new ImageError(409, "Confirma o cancela la revisión de imágenes antes de cambiar el catálogo.");
     const image = await tx.recordImage.findFirst({ where: { id, validationId } });
     if (!image) throw new ImageError(404, "La imagen no está disponible.");
     if (validation.status === "ACTIVE" && validation.showImage && validation.imageMode === "PER_RECORD" && !confirmed) throw new ImageError(409, "Confirma la desactivación antes de eliminar una imagen de esta validación activa.");
     if (validation.status === "ACTIVE" && validation.showImage && validation.imageMode === "PER_RECORD") await tx.validation.update({ where: { id: validationId }, data: { status: "INACTIVE" } });
     await tx.recordImage.delete({ where: { id } });
+    await tx.validation.update({ where: { id: validationId }, data: { imageRevision: { increment: 1 } } });
     await tx.auditLog.create({ data: { actorId: user.id, tenantId: validation.tenantId, targetId: validationId, action: "RECORD_IMAGE_DELETED" } });
     return image.storageKey;
   });
@@ -101,16 +103,20 @@ export async function deleteRecordImage(actor: Actor, validationId: string, id: 
 export async function replaceRecordImage(actor: Actor, validationId: string, id: string, input: Buffer, filename: string, mime: string, version: string) {
   const expected = z.iso.datetime({ offset: true }).safeParse(version);
   if (!expected.success) throw new ImageError(400, "La versión de la imagen no es válida. Recarga el catálogo.");
+  const owner = await getValidation(actor, validationId);
+  if (!owner) throw new ImageError(404, "La validación no está disponible.");
   const existing = await getRecordImage(actor, validationId, id);
   if (!existing) throw new ImageError(404, "La imagen no está disponible.");
   if (existing.updatedAt.getTime() !== new Date(version).getTime()) throw new ImageError(409, "La imagen cambió. Recarga el catálogo antes de reemplazarla.");
   const prepared = await prepareImage(input, filename, mime);
-  const key = await writeImageFile(prepared.data);
+  const key = await writeImageFile(prepared.data, imageTarget(owner));
   let previous: string;
   try {
     previous = await prisma.$transaction(async tx => {
       const user = await currentActor(tx, actor);
       const validation = await lockValidation(tx, user, validationId);
+      if (await tx.importJob.findFirst({ where: { validationId, status: "REVIEW", sourceKey: { endsWith: ".directory" } } })) throw new ImageError(409, "Confirma o cancela la revisión de imágenes antes de cambiar el catálogo.");
+      if (validation.imageStorageKind !== owner.imageStorageKind) throw new ImageError(409, "El destino de imágenes cambió. Vuelve a cargar la imagen.");
       const image = await tx.recordImage.findFirst({ where: { id, tenantId: validation.tenantId, validationId } });
       if (!image) throw new ImageError(404, "La imagen no está disponible.");
       if (image.storageKey !== existing.storageKey || image.updatedAt.getTime() !== new Date(version).getTime()) {
@@ -118,8 +124,10 @@ export async function replaceRecordImage(actor: Actor, validationId: string, id:
       }
       await tx.recordImage.update({ where: { id }, data: {
         storageKey: key, originalName: filename, width: prepared.width, height: prepared.height, size: prepared.data.length,
+        sourceHash: null,
         updatedAt: new Date(Math.max(Date.now(), image.updatedAt.getTime() + 1)),
       } });
+      await tx.validation.update({ where: { id: validationId }, data: { imageRevision: { increment: 1 } } });
       await tx.auditLog.create({ data: { actorId: user.id, tenantId: validation.tenantId, targetId: validationId,
         action: "RECORD_IMAGE_REPLACED", metadata: { imageId: id } } });
       return image.storageKey;

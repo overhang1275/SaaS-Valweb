@@ -119,6 +119,9 @@ model Validation {
   activeDataset Dataset? @relation("ActiveDataset", fields: [tenantId, id, activeDatasetId], references: [tenantId, validationId, id], onDelete: NoAction, onUpdate: NoAction)
   datasets Dataset[] @relation("ValidationDatasets")
   imageMode ImageMode @default(PER_RECORD)
+  imageStorageKind StorageKind?
+  imageRevision Int @default(0)
+  imageStorage ImageStorageLocation? @relation(fields: [imageStorageKind], references: [kind], onDelete: Restrict, onUpdate: Restrict)
   showFolio Boolean @default(true)
   showAlfanum Boolean @default(false)
   showTipo Boolean @default(true)
@@ -175,6 +178,16 @@ enum ImageMode {
   SHARED
   PER_RECORD
 }
+enum StorageKind {
+  LOCAL
+  NFS
+}
+model ImageStorageLocation {
+  kind StorageKind @id
+  rootPath String
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  validations Validation[]
+}
 model RecordImage {
   id String @id @default(uuid()) @db.Uuid
   tenantId String @db.Uuid
@@ -186,6 +199,7 @@ model RecordImage {
   width Int
   height Int
   size Int
+  sourceHash String? @db.VarChar(64)
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
   @@unique([tenantId, validationId, alfanumNormalized])
@@ -210,12 +224,14 @@ model ImportJob {
   validation Validation @relation(fields: [tenantId, validationId], references: [tenantId, id], onDelete: Restrict)
   requestedById String @db.Uuid
   kind ImportKind
+  imageStorageKind StorageKind?
   status ImportStatus @default(QUEUED)
   phase String @default("En cola")
   sourceKey String
   originalName String @db.VarChar(200)
   mode String @default("REPLACE")
   replaceImages Boolean @default(false)
+  baseImageRevision Int?
   mapping Json?
   headers Json?
   summary Json?
@@ -240,6 +256,8 @@ model ImportImageItem {
   width Int
   height Int
   size Int
+  sourceHash String? @db.VarChar(64)
+  replacesImageId String? @db.Uuid
   @@unique([jobId, alfanumNormalized])
 }
 model ValidationDailyStat {

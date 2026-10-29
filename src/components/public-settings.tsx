@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useState } from "react";
 import { publicSettingsAction } from "@/features/validations/actions";
 import { initialActionState } from "@/lib/action-state";
 import { useHydrated } from "@/lib/use-hydrated";
@@ -10,7 +10,6 @@ export function PublicSettings({ id, initial, canManageAccess }: { id: string; i
   const [values, setValues] = useState(initial);
   const ready = useHydrated();
   const [state, action, pending] = useActionState(publicSettingsAction, initialActionState);
-  useEffect(() => setValues(initial), [initial]);
   return <section className="publication-section surface public-settings" aria-labelledby="result-settings-title"><h2 id="result-settings-title">Resultado público</h2><p className="help">La búsqueda siempre se realiza por alfanumérico. Elige qué datos mostrar al encontrarlo.</p><form action={action} className="stack">
     <input type="hidden" name="id" value={id} />
     <div className="field"><label htmlFor="result-image-mode">Modo de imágenes</label><select id="result-image-mode" name="imageMode" disabled={!ready || pending} value={values.imageMode} onChange={event => setValues({ ...values, imageMode: event.target.value as Settings["imageMode"] })}><option value="PER_RECORD">Una imagen por alfanumérico (carga masiva)</option><option value="SHARED">Una imagen general para todos</option></select></div>

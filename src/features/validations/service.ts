@@ -62,7 +62,8 @@ export async function createValidation(actor: Actor, input: Texts & { tenantId?:
     if (!tenantId) throw new Error('Selecciona una cuenta activa.');
     const tenant = await tx.tenant.findFirst({ where: { id: tenantId, status: 'ACTIVE' } });
     if (!tenant) throw new Error('Selecciona una cuenta activa.');
-    const row = await tx.validation.create({ data: { ...data, tenantId, createdById: user.id, publicToken: randomUUID() }, include });
+    const local = await tx.imageStorageLocation.findUnique({ where: { kind: 'LOCAL' }, select: { kind: true } });
+    const row = await tx.validation.create({ data: { ...data, tenantId, createdById: user.id, publicToken: randomUUID(), imageStorageKind: local?.kind ?? null }, include });
     await tx.auditLog.create({ data: { actorId: user.id, tenantId, action: 'VALIDATION_CREATED', targetId: row.id } });
     return row;
   });
