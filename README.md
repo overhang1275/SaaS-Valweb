@@ -18,7 +18,7 @@ El instalador configura Valweb dentro de un contenedor LXC existente; no crea co
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/overhang1275/SaaS-Valweb/refs/heads/main/ops/valweb-install.sh)"
 ```
 
-El instalador crea el grupo local `valweb-images` con GID `1500` por defecto y agrega el servicio `valweb`. Si ese GID está ocupado, configura `VALWEB_IMAGE_GID` con un ID libre entre `1000` y `1999`, y usa el mismo en la NAS. En la NAS asigna ese grupo a la raíz NFS con permisos y ACL heredables y agrega las cuentas FTP autorizadas. En actualizaciones, el instalador pregunta si debe reparar permisos de carpetas NFS de validaciones existentes; solo cambia el grupo y modo de esas carpetas y de `por_procesar/`, y deja `procesadas/` y sus archivos intactos.
+El instalador crea el grupo local `valweb-images` con GID `1500` por defecto y agrega el servicio `valweb`. Consulta **Permisos de NAS para FTP** antes de recibir imágenes por FTP.
 
 El asistente permite actualizar paquetes, elegir una release o un commit, configurar la aplicación y respaldar datos antes de actualizar. Los archivos se guardan en `/opt/valweb`, la configuración en `/etc/valweb/.env` y los datos en `/var/lib/valweb`. La beta necesita un proxy TLS externo para servir HTTPS. Conserva los respaldos: las migraciones de base de datos no se revierten automáticamente.
 
@@ -122,6 +122,22 @@ Límites iniciales:
 - Recepción:dos cargas simultáneas por proceso, diez por usuario/hora, límite de una hora y comprobación de espacio. Reserva disco para el original, imágenes normalizadas, staging y bases antiguas;50,000 imágenes de2MiB son aproximadamente98GiB solo de originales sin compresión.
 
 `IMPORT_STORAGE_DIR` usa `var/imports`; debe ser un volumen privado persistente compartido con el worker. `IMAGE_STORAGE_DIR` conserva la raíz histórica, mientras la ruta local predeterminada y las rutas LOCAL/NFS nuevas se persisten en la base. Web y worker deben ver los mismos montajes con permisos de lectura/escritura; en Linux/LXC, NFS debe estar montado por el host o el sistema operativo, no por la aplicación. El instalador no monta NFS ni cambia propietarios recursivamente dentro de destinos administrados. Para FTP, el grupo `valweb-images` debe tener el mismo GID en la NAS y en el LXC; concede al grupo acceso heredable en la raíz compartida y acceso de escritura/listado en `por_procesar/`. Configura el servidor FTP para crear archivos legibles por el worker. Reserva espacio para originales, captura y WebP normalizadas.
+
+## Permisos de NAS para FTP
+
+Las carpetas de validación las crea Valweb dentro de la raíz de imágenes, por ejemplo `/mnt/valweb-nfs/<tenantUUID>_<validationUUID>/por_procesar/`. El usuario del servicio y las cuentas FTP deben compartir un GID numérico para que puedan colaborar sobre NFS.
+
+1. En la NAS, crea el grupo `valweb-images` con GID `1500` si está libre y agrega las cuentas FTP autorizadas, por ejemplo `tecnologias.informacion` e `informacion.variable`.
+2. Asigna ese grupo a la raíz exportada, por ejemplo `/nfs/valweb`, y habilita herencia de permisos/ACL para subcarpetas y archivos. El grupo necesita atravesar y listar directorios; `por_procesar/` necesita escritura para FTP. Los archivos que suba FTP deben quedar legibles por el grupo para que Valweb pueda procesarlos.
+3. El instalador crea `valweb-images` en el LXC con ese GID y agrega `valweb`; confirma con `id valweb` que aparezca `1500(valweb-images)`. Comprueba también que la raíz montada pertenezca al grupo `1500` con `stat -c '%g' /mnt/valweb-nfs`. Si `1500` está ocupado en alguno de los equipos, elige un ID libre entre `1000` y `1999` y configura el mismo en NAS y LXC. Para cambiar el predeterminado al ejecutar el instalador:
+
+   ```bash
+   VALWEB_IMAGE_GID=1501 bash -c "$(curl -fsSL https://raw.githubusercontent.com/overhang1275/SaaS-Valweb/refs/heads/main/ops/valweb-install.sh)"
+   ```
+4. En Valweb, configura como ruta NFS la ruta de montaje del LXC, por ejemplo `/mnt/valweb-nfs`. Cada validación tendrá su propia carpeta y su bandeja `por_procesar/`.
+5. Durante una actualización, el instalador ofrece **Reparar permisos del grupo FTP en carpetas NFS de validaciones existentes**. Responde `s` para cambiar grupo y permisos solo en las carpetas de validación y `por_procesar/`; la raíz debe tener el GID configurado. `procesadas/` y los archivos existentes no se modifican. Si archivos FTP antiguos tampoco son legibles por Valweb, aplica desde la NAS la ACL de lectura del grupo a esos archivos.
+
+Usa permisos de grupo (directorios `rwx`, archivos FTP legibles por el grupo) y evita `777`. El instalador no cambia la configuración ni las ACL de la NAS.
 
 ## Almacenamiento privado de imágenes
 
