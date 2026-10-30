@@ -7,7 +7,7 @@ import { encryptAccessToken } from './mail';
 import { hashAccessToken } from './tokens';
 import { tenantListQuerySchema, userListQuerySchema, type TenantListQuery, type UserListQuery } from './list-query';
 
-export type Actor = { id: string; tenantId: string | null; role: 'ADMIN' | 'CLIENT'; sessionVersion: number };
+export type Actor = { id: string; tenantId: string | null; role: 'ADMIN' | 'CLIENT' | 'CONSULTATION_ONLY'; sessionVersion: number };
 type Tx = Prisma.TransactionClient;
 const DUMMY_HASH = '$argon2id$v=19$m=65536,t=3,p=4$2zJKYDxoh1hH0C6GaF9WBw$NPL82B60oB/RHkNjkKmdnmb+rYrfq9uOv5zVhQgnif8';
 const emailSchema = z.email().max(254).transform(value => value.trim().toLowerCase());
@@ -20,14 +20,15 @@ const audit = (tx: Tx, action: string, actorId: string | null, targetId: string)
 export async function currentActor(tx: Tx, actor: Actor, admin = false) {
   await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${actor.id}::uuid FOR UPDATE`;
   const user = await tx.user.findUnique({ where: { id: actor.id }, include: { tenant: true } });
-  if (!user || user.status !== 'ACTIVE' || user.sessionVersion !== actor.sessionVersion || (user.role === 'CLIENT' && user.tenant?.status !== 'ACTIVE')) throw new Error('La sesión ya no es válida.');
+  if (!user || user.status !== 'ACTIVE' || user.sessionVersion !== actor.sessionVersion || (user.role !== 'ADMIN' && user.tenant?.status !== 'ACTIVE')) throw new Error('La sesión ya no es válida.');
+  if (user.role === 'CONSULTATION_ONLY') throw new Error('No tienes permiso para usar el panel.');
   if (admin && user.role !== 'ADMIN') throw new Error('No tienes permiso para esta acción.');
   return user;
 }
 
 export async function resolveActor(id: string, sessionVersion: number): Promise<Actor | null> {
   const user = await prisma.user.findUnique({ where: { id }, include: { tenant: true } });
-  if (!user || user.status !== 'ACTIVE' || user.sessionVersion !== sessionVersion || (user.role === 'CLIENT' && user.tenant?.status !== 'ACTIVE')) return null;
+  if (!user || user.status !== 'ACTIVE' || user.sessionVersion !== sessionVersion || (user.role !== 'ADMIN' && user.tenant?.status !== 'ACTIVE')) return null;
   return actorOf(user);
 }
 
@@ -101,6 +102,90 @@ export async function listUsers(actor: Actor, options: UserListQuery = userListQ
     return { rows, total, page, pageSize: query.pageSize };
   }, { isolationLevel: 'RepeatableRead' });
 }
+
+export async function listConsultationUsers(actor: Actor, options: UserListQuery = userListQuerySchema.parse({})) {
+  const query = userListQuerySchema.parse(options);
+  return prisma.$transaction(async tx => {
+    const requester = await currentActor(tx, actor);
+    const where: Prisma.UserWhereInput = {
+      role: 'CONSULTATION_ONLY',
+      ...(requester.role === 'ADMIN' ? {} : { tenantId: requester.tenantId! }),
+      ...(query.q ? { OR: [{ name: { contains: query.q, mode: 'insensitive' } }, { email: { contains: query.q, mode: 'insensitive' } }] } : {}),
+      ...(query.estado ? { status: query.estado } : {}),
+      ...(query.cuenta ? { tenant: { name: { contains: query.cuenta, mode: 'insensitive' } } } : {}),
+    };
+    const total = await tx.user.count({ where });
+    const page = Math.min(query.page, Math.max(1, Math.ceil(total / query.pageSize)));
+    const rows = await tx.user.findMany({
+      where,
+      select: { ...safeUser, tenant: { select: { name: true } }, queryValidationAccesses: { select: { validation: { select: { id: true, name: true } } }, orderBy: { validation: { name: 'asc' } } } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * query.pageSize, take: query.pageSize,
+    });
+    return { rows, total, page, pageSize: query.pageSize };
+  }, { isolationLevel: 'RepeatableRead' });
+}
+
+export async function listProtectedValidations(actor: Actor) {
+  return prisma.$transaction(async tx => {
+    await currentActor(tx, actor, true);
+    return tx.validation.findMany({
+      where: { requireClientAccess: true, status: { not: 'DELETED' }, deletedAt: null, tenant: { status: 'ACTIVE' } },
+      select: { id: true, name: true, title: true, tenantId: true, tenant: { select: { name: true } } },
+      orderBy: [{ tenant: { name: 'asc' } }, { name: 'asc' }, { id: 'asc' }],
+    });
+  });
+}
+
+function uniqueIds(ids: string[]) {
+  return [...new Set(z.array(z.uuid()).max(100).parse(ids))];
+}
+
+async function validateConsultationGrants(tx: Tx, tenantId: string, validationIds: string[]) {
+  if (!validationIds.length) return;
+  const valid = await tx.validation.count({ where: { id: { in: validationIds }, tenantId, requireClientAccess: true, status: { not: 'DELETED' } } });
+  if (valid !== validationIds.length) throw new Error('Selecciona únicamente validaciones protegidas de la cuenta indicada.');
+}
+
+export async function inviteConsultationUser(actor: Actor, input: { email: string; name: string; tenantId: string; validationIds: string[] }) {
+  const email = emailSchema.parse(input.email.trim());
+  const name = nameSchema.parse(input.name);
+  const validationIds = uniqueIds(input.validationIds);
+  if (!validationIds.length) throw new Error('Selecciona al menos una validación protegida.');
+  return prisma.$transaction(async tx => {
+    const admin = await currentActor(tx, actor, true);
+    const tenant = await tx.tenant.findUnique({ where: { id: input.tenantId } });
+    if (!tenant || tenant.status !== 'ACTIVE') throw new Error('Selecciona una cuenta activa.');
+    await validateConsultationGrants(tx, tenant.id, validationIds);
+    const existing = await tx.user.findUnique({ where: { email } });
+    if (existing && (existing.status !== 'INVITED' || existing.tenantId !== tenant.id || existing.role !== 'CONSULTATION_ONLY')) throw new Error('El correo ya tiene un acceso registrado.');
+    const user = existing
+      ? await tx.user.update({ where: { id: existing.id }, data: { name } })
+      : await tx.user.create({ data: { email, name, tenantId: tenant.id, role: 'CONSULTATION_ONLY' } });
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${user.id}::uuid FOR UPDATE`;
+    await tx.userValidationAccess.deleteMany({ where: { userId: user.id } });
+    if (validationIds.length) await tx.userValidationAccess.createMany({ data: validationIds.map(validationId => ({ tenantId: tenant.id, userId: user.id, validationId })) });
+    await tx.accessToken.updateMany({ where: { userId: user.id, purpose: 'INVITE', usedAt: null }, data: { usedAt: new Date() } });
+    const token = randomBytes(32).toString('hex');
+    const accessToken = await tx.accessToken.create({ data: { userId: user.id, purpose: 'INVITE', tokenHash: hashAccessToken(token), expiresAt: new Date(Date.now() + 48 * 3600000) } });
+    await tx.accessEmailOutbox.create({ data: { recipient: email, purpose: 'INVITE', accessTokenId: accessToken.id, encryptedToken: encryptAccessToken(token, accessToken.id) } });
+    await audit(tx, existing ? 'CONSULTATION_USER_INVITED' : 'CONSULTATION_USER_CREATED', admin.id, user.id);
+    return tx.user.findUniqueOrThrow({ where: { id: user.id }, select: safeUser });
+  }, { timeout: 15000 });
+}
+
+export async function saveConsultationUserValidations(actor: Actor, userId: string, inputValidationIds: string[]) {
+  const validationIds = uniqueIds(inputValidationIds);
+  return prisma.$transaction(async tx => {
+    const admin = await currentActor(tx, actor, true);
+    const user = await tx.user.findUnique({ where: { id: userId } });
+    if (!user || user.role !== 'CONSULTATION_ONLY' || !user.tenantId) throw new Error('No se encontró el usuario de consulta.');
+    await validateConsultationGrants(tx, user.tenantId, validationIds);
+    await tx.userValidationAccess.deleteMany({ where: { userId: user.id } });
+    if (validationIds.length) await tx.userValidationAccess.createMany({ data: validationIds.map(validationId => ({ tenantId: user.tenantId!, userId: user.id, validationId })) });
+    await audit(tx, 'CONSULTATION_USER_ACCESS_UPDATED', admin.id, user.id);
+    return tx.user.findUniqueOrThrow({ where: { id: user.id }, select: { ...safeUser, queryValidationAccesses: { select: { validationId: true } } } });
+  });
+}
 export async function inviteUser(actor: Actor, input: { email: string; name: string; tenantId: string }) {
   const email = emailSchema.parse(input.email.trim());
   const name = nameSchema.parse(input.name);
@@ -153,7 +238,7 @@ export async function requestPasswordReset(email: string): Promise<void> {
 export async function getAccessTokenInfo(token: string): Promise<{ purpose: string; email: string } | null> {
   if (!/^[a-f0-9]{64}$/.test(token)) return null;
   const access = await prisma.accessToken.findUnique({ where: { tokenHash: hashAccessToken(token) }, include: { user: { include: { tenant: true } } } });
-  if (!access || access.usedAt || access.expiresAt <= new Date() || access.user.status === 'DISABLED' || (access.user.role === 'CLIENT' && access.user.tenant?.status !== 'ACTIVE')) return null;
+  if (!access || access.usedAt || access.expiresAt <= new Date() || access.user.status === 'DISABLED' || (access.user.role !== 'ADMIN' && access.user.tenant?.status !== 'ACTIVE')) return null;
   return { purpose: access.purpose, email: access.user.email };
 }
 export async function consumeAccessToken(token: string, password: string): Promise<void> {
@@ -166,7 +251,7 @@ export async function consumeAccessToken(token: string, password: string): Promi
     const claimed = await tx.accessToken.updateMany({ where: { id: access.id, usedAt: null, expiresAt: { gt: new Date() } }, data: { usedAt: new Date() } });
     if (claimed.count !== 1) throw new Error('El enlace no es válido o ha caducado.');
     const user = await tx.user.findUniqueOrThrow({ where: { id: access.userId }, include: { tenant: true } });
-    if (user.status === 'DISABLED' || (user.role === 'CLIENT' && user.tenant?.status !== 'ACTIVE') || (access.purpose === 'RESET' && user.status !== 'ACTIVE')) throw new Error('El acceso no está disponible.');
+    if (user.status === 'DISABLED' || (user.role !== 'ADMIN' && user.tenant?.status !== 'ACTIVE') || (access.purpose === 'RESET' && user.status !== 'ACTIVE')) throw new Error('El acceso no está disponible.');
     await tx.user.update({ where: { id: user.id }, data: { passwordHash, status: 'ACTIVE', sessionVersion: { increment: 1 } } });
     await tx.accessToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: new Date() } });
     await audit(tx, 'PASSWORD_CHANGED', user.id, user.id);

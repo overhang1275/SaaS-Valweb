@@ -10,7 +10,8 @@
 | Rol | Puede hacer |
 | --- | --- |
 | **Administrador** | Crear y suspender cuentas; invitar usuarios; crear validaciones; cargar y publicar registros e imágenes; configurar el resultado público; activar o desactivar enlaces; revisar estadísticas y ajustes generales. |
-| **Cliente** | Consultar sus validaciones y estadísticas; editar textos y descripción. No puede cargar registros o imágenes, cambiar la publicación ni administrar usuarios. |
+| **Cliente** | Consultar sus validaciones y estadísticas; editar textos y descripción. Puede ver los usuarios de consulta y sus validaciones asignadas. No puede cargar registros o imágenes, cambiar la publicación ni administrar usuarios. |
+| **Solo consulta** | Abrir enlaces públicos protegidos que el administrador haya asignado. No tiene acceso al panel y no puede consultar otras validaciones protegidas. |
 
 Las validaciones y los datos pertenecen a una cuenta. Al crear una validación, asigna la cuenta correcta; no se transfiere después desde la pantalla de edición.
 
@@ -21,6 +22,16 @@ Las validaciones y los datos pertenecen a una cuenta. Al crear una validación, 
 3. Abre **Usuarios → Invitar usuario**. Captura nombre, correo y cuenta.
 4. La persona recibe un enlace de invitación válido durante 48 horas para crear su contraseña.
 5. Desde **Usuarios**, puedes desactivar una cuenta individual o cerrar sus sesiones. Suspender la cuenta de cliente bloquea el acceso de sus usuarios.
+
+## 1.1 Invitar a alguien que solo consultará enlaces protegidos
+
+1. En **Usuarios**, selecciona **Administrar accesos de consulta**.
+2. Indica nombre, correo y cuenta. Selecciona una o varias validaciones protegidas de esa cuenta.
+3. La invitación vence en 48 horas. La persona crea su propia contraseña desde el enlace recibido.
+4. Desde **Accesos existentes**, el administrador puede cambiar las validaciones autorizadas, reenviar invitaciones pendientes o desactivar el usuario.
+5. Los clientes pueden abrir **Usuarios de consulta** en su panel para ver nombres, estado y permisos de su cuenta; no pueden invitar personas ni editar esos permisos.
+
+La persona invitada no inicia sesión en el panel. Entra desde cada enlace protegido asignado con su correo y contraseña. Retirar una validación, desactivar al usuario o suspender la cuenta bloquea las consultas, incluso en sesiones públicas que ya estaban abiertas. Los enlaces sin protección siguen siendo públicos.
 
 ## 2. Crear una validación y reservar el enlace
 

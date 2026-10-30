@@ -11,7 +11,7 @@ export function Navigation({ admin, onNavigate }: { admin: boolean; onNavigate?:
     { href: "/validaciones", label: "Validaciones", Icon: ClipboardCheck },
     { href: "/estadisticas", label: "Estadísticas", Icon: ChartNoAxesCombined },
     ...(admin ? [{ href: "/admin/clientes", label: "Clientes", Icon: Building2 }] : []),
-    ...(admin ? [{ href: "/admin/usuarios", label: "Usuarios", Icon: Users }] : []),
+    { href: "/admin/usuarios", label: admin ? "Usuarios" : "Usuarios de consulta", Icon: Users },
     ...(admin ? [{ href: "/admin/ajustes", label: "Ajustes generales", Icon: Settings }] : []),
   ];
   return <nav aria-label="Principal">{links.map(({ href, label, Icon }) => {

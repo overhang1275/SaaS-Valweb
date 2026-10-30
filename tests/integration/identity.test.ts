@@ -4,18 +4,20 @@ vi.hoisted(() => {
   if (!url || !new URL(url).pathname.endsWith('/valweb_test')) throw new Error('TEST_DATABASE_URL must point to valweb_test');
   process.env.DATABASE_URL = url;
 });
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { hash } from 'argon2';
 import { prisma } from '../../src/lib/prisma';
 import { limitRequest } from '../../src/features/identity/rate-limit';
 import * as mail from '../../src/features/identity/mail';
 import { processOneAccessEmail } from '../../src/features/identity/mail-outbox';
-import { authenticate, resolveActor, listUsers, createTenant, inviteUser, setTenantStatus, setUserStatus, revokeUserSessions, consumeAccessToken, requestPasswordReset } from '../../src/features/identity/service';
+import { authenticate, resolveActor, currentActor, listUsers, listConsultationUsers, createTenant, inviteUser, inviteConsultationUser, saveConsultationUserValidations, setTenantStatus, setUserStatus, revokeUserSessions, consumeAccessToken, getAccessTokenInfo, requestPasswordReset } from '../../src/features/identity/service';
 
 vi.spyOn(mail, 'sendAccessEmail').mockResolvedValue(undefined);
 let admin: NonNullable<Awaited<ReturnType<typeof authenticate>>>;
 let client: typeof admin;
 let otherTenant: string;
+const validationIds = { protected: randomUUID(), second: randomUUID(), foreign: randomUUID(), open: randomUUID() };
+const validationTokens = { protected: randomUUID(), second: randomUUID(), foreign: randomUUID(), open: randomUUID() };
 beforeEach(async () => {
   vi.clearAllMocks();
   await prisma.validationDailyStat.deleteMany();
@@ -40,6 +42,12 @@ beforeEach(async () => {
   const user = await prisma.user.create({ data: { email: 'client@example.test', name: 'Client', role: 'CLIENT', status: 'ACTIVE', tenantId: tenant.id, passwordHash } });
   client = { id: user.id, role: 'CLIENT', tenantId: tenant.id, sessionVersion: 0 };
   await prisma.user.create({ data: { email: 'other@example.test', name: 'Other', role: 'CLIENT', status: 'ACTIVE', tenantId: otherTenant, passwordHash } });
+  await prisma.validation.createMany({ data: [
+    { id: validationIds.protected, tenantId: tenant.id, createdById: admin.id, name: 'Protected A', title: 'Protected A', instructions: '', successMessage: 'OK', errorMessage: 'No', publicToken: validationTokens.protected, requireClientAccess: true },
+    { id: validationIds.second, tenantId: tenant.id, createdById: admin.id, name: 'Protected B', title: 'Protected B', instructions: '', successMessage: 'OK', errorMessage: 'No', publicToken: validationTokens.second, requireClientAccess: true },
+    { id: validationIds.foreign, tenantId: otherTenant, createdById: admin.id, name: 'Foreign', title: 'Foreign', instructions: '', successMessage: 'OK', errorMessage: 'No', publicToken: validationTokens.foreign, requireClientAccess: true },
+    { id: validationIds.open, tenantId: tenant.id, createdById: admin.id, name: 'Open', title: 'Open', instructions: '', successMessage: 'OK', errorMessage: 'No', publicToken: validationTokens.open, requireClientAccess: false },
+  ] });
 });
 afterAll(async () => { await prisma.$disconnect(); });
 describe('identity against PostgreSQL', () => {
@@ -63,6 +71,66 @@ describe('identity against PostgreSQL', () => {
     expect(second.id).toBe(first.id);
     expect(await prisma.accessToken.count({ where: { userId: first.id, usedAt: null } })).toBe(1);
     await expect(inviteUser(admin, { ...input, tenantId: client.tenantId! })).rejects.toThrow();
+  });
+  it('invites consultation-only users with a 48-hour token and validation grants', async () => {
+    const input = { email: 'consultation@example.test', name: 'Consultation', tenantId: client.tenantId!, validationIds: [validationIds.protected] };
+    const invited = await inviteConsultationUser(admin, input);
+    const access = await prisma.accessToken.findFirstOrThrow({ where: { userId: invited.id, purpose: 'INVITE', usedAt: null } });
+    expect(invited.role).toBe('CONSULTATION_ONLY');
+    expect(invited).not.toHaveProperty('passwordHash');
+    expect(access.expiresAt.getTime() - Date.now()).toBeGreaterThan(47 * 60 * 60 * 1000);
+    expect(access.expiresAt.getTime() - Date.now()).toBeLessThan(48 * 60 * 60 * 1000 + 1000);
+    expect(await prisma.userValidationAccess.count({ where: { userId: invited.id, validationId: validationIds.protected } })).toBe(1);
+
+    const resent = await inviteConsultationUser(admin, input);
+    expect(resent.id).toBe(invited.id);
+    expect(await prisma.accessToken.count({ where: { userId: invited.id, purpose: 'INVITE', usedAt: null } })).toBe(1);
+  });
+  it('rejects consultation invitations from CLIENT users', async () => {
+    await expect(inviteConsultationUser(client!, { email: 'not-admin@example.test', name: 'No admin', tenantId: client!.tenantId!, validationIds: [validationIds.protected] })).rejects.toThrow('No tienes permiso');
+    expect(await prisma.user.findUnique({ where: { email: 'not-admin@example.test' } })).toBeNull();
+  });
+  it('does not authorize consultation-only accounts in panel identity services', async () => {
+    const invited = await inviteConsultationUser(admin!, { email: 'panel-denied@example.test', name: 'Panel denied', tenantId: client!.tenantId!, validationIds: [validationIds.protected] });
+    const user = await prisma.user.update({ where: { id: invited.id }, data: { status: 'ACTIVE', passwordHash: await hash('Panel-denial-password-2026!') } });
+    await expect(prisma.$transaction(tx => currentActor(tx, { id: user.id, tenantId: user.tenantId, role: 'CONSULTATION_ONLY', sessionVersion: user.sessionVersion }))).rejects.toThrow('No tienes permiso para usar el panel.');
+  });
+  it('rejects grants for another tenant or an unprotected validation', async () => {
+    const input = { email: 'bad-grant@example.test', name: 'Bad grant', tenantId: client!.tenantId!, validationIds: [validationIds.foreign] };
+    await expect(inviteConsultationUser(admin!, input)).rejects.toThrow();
+    await expect(inviteConsultationUser(admin!, { ...input, email: 'no-grants@example.test', validationIds: [] })).rejects.toThrow('Selecciona al menos una validación protegida.');
+    await expect(inviteConsultationUser(admin!, { ...input, email: 'open-grant@example.test', validationIds: [validationIds.open] })).rejects.toThrow();
+    expect(await prisma.user.findUnique({ where: { email: input.email } })).toBeNull();
+    expect(await prisma.user.findUnique({ where: { email: 'open-grant@example.test' } })).toBeNull();
+  });
+  it('adds and removes validation grants without allowing cross-tenant links', async () => {
+    const invited = await inviteConsultationUser(admin!, { email: 'grant-edit@example.test', name: 'Grant edit', tenantId: client!.tenantId!, validationIds: [validationIds.protected] });
+    await saveConsultationUserValidations(admin!, invited.id, [validationIds.protected, validationIds.second]);
+    expect(await prisma.userValidationAccess.count({ where: { userId: invited.id } })).toBe(2);
+    await expect(saveConsultationUserValidations(admin!, invited.id, [validationIds.foreign])).rejects.toThrow();
+    await saveConsultationUserValidations(admin!, invited.id, [validationIds.second]);
+    expect(await prisma.userValidationAccess.findMany({ where: { userId: invited.id }, select: { validationId: true } })).toEqual([{ validationId: validationIds.second }]);
+  });
+  it('lists only consultation users and permissions belonging to the CLIENT tenant', async () => {
+    const own = await inviteConsultationUser(admin!, { email: 'own-consultation@example.test', name: 'Own consultation', tenantId: client!.tenantId!, validationIds: [validationIds.protected] });
+    await inviteConsultationUser(admin!, { email: 'foreign-consultation@example.test', name: 'Foreign consultation', tenantId: otherTenant, validationIds: [validationIds.foreign] });
+    const visible = await listConsultationUsers(client!);
+    expect(visible.rows.map(row => row.id)).toEqual([own.id]);
+    expect(visible.rows[0].queryValidationAccesses.map(access => access.validation.id)).toEqual([validationIds.protected]);
+    expect(visible.rows[0]).not.toHaveProperty('passwordHash');
+  });
+  it('blocks consultation users after their tenant is suspended', async () => {
+    const invited = await inviteConsultationUser(admin!, { email: 'suspend-consultation@example.test', name: 'Suspend consultation', tenantId: client!.tenantId!, validationIds: [validationIds.protected] });
+    await processOneAccessEmail();
+    const token = vi.mocked(mail.sendAccessEmail).mock.calls.at(-1)![1];
+    const accessInfo = await getAccessTokenInfo(token);
+    expect(accessInfo?.email).toBe('suspend-consultation@example.test');
+    await consumeAccessToken(token, 'Consultation-password-2026!');
+    const active = await prisma.user.findUniqueOrThrow({ where: { id: invited.id } });
+    const sessionVersion = active.sessionVersion;
+    await setTenantStatus(admin!, client!.tenantId!, 'SUSPENDED');
+    expect(await resolveActor(invited.id, sessionVersion)).toBeNull();
+    expect(await getAccessTokenInfo(token)).toBeNull();
   });
   it('isolates tenants and rejects forged admin roles', async () => {
     const { rows: users } = await listUsers(client);

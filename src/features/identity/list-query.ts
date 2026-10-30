@@ -6,7 +6,7 @@ const pagination = {
   pageSize: z.coerce.number().pipe(z.union([z.literal(25), z.literal(50)])).default(25),
 };
 export const tenantListQuerySchema = z.object({ ...pagination, estado: z.enum(["", "ACTIVE", "SUSPENDED"]).default("") });
-export const userListQuerySchema = z.object({ ...pagination, estado: z.enum(["", "ACTIVE", "INVITED", "DISABLED"]).default(""), rol: z.enum(["", "ADMIN", "CLIENT"]).default(""), cuenta: z.string().trim().max(128).default("") });
+export const userListQuerySchema = z.object({ ...pagination, estado: z.enum(["", "ACTIVE", "INVITED", "DISABLED"]).default(""), rol: z.enum(["", "ADMIN", "CLIENT", "CONSULTATION_ONLY"]).default(""), cuenta: z.string().trim().max(128).default("") });
 export type TenantListQuery = z.output<typeof tenantListQuerySchema>;
 export type UserListQuery = z.output<typeof userListQuerySchema>;
 

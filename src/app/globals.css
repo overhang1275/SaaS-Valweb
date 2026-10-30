@@ -336,6 +336,15 @@ tbody tr:hover { background: #fafcfe; }
 .empty-state h3 { font-size: 17px; }
 .empty-state > .button { margin-top: 20px; }
 .form-section { border: 1px solid var(--border); border-radius: var(--radius-lg); background: white; padding: 28px; box-shadow: var(--shadow-sm); }
+.consultation-management { grid-template-columns: minmax(200px, 1fr); }
+.consultation-management > div:first-child > p { max-width: 600px; }
+.consultation-user-list { display: grid; gap: 16px; }
+.consultation-user-card { display: grid; gap: 20px; }
+.consultation-user-card .page-heading { margin: 0; align-items: flex-start; }
+.consultation-user-card .page-heading h3 { font-size: 17px; }
+.consultation-user-card .page-heading p { margin-top: 4px; }
+.consultation-user-card .stack { max-width: none; }
+.consultation-user-card select[multiple], .consultation-management select[multiple] { min-height: 132px; }
 .form-section > div h2 { font-size: 20px; }
 .validation-form { max-width: none; }
 .validation-fields { gap: 20px; }
