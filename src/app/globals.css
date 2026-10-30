@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+.howto-anatomy { margin: 0; }
+.howto-figure-bar { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 14px 20px; color: var(--muted); font-size: 12px; }
+.howto-figure-bar strong, .howto-figure-bar output { color: var(--text); font-weight: 600; }
+.howto-figure-bar output { margin-left: auto; text-align: right; }
+.howto-anatomy > .howto-figure-bar:first-child { border-bottom: 1px solid var(--border); }
+.howto-anatomy figcaption { border-bottom: 1px solid var(--border); }
+.howto-anatomy + .howto-demo-status { padding-top: 22px; }
+.howto-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.howto-fieldset legend { font-weight: 500; margin-bottom: 4px; }
+.howto-check { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
+.howto-demo .howto-check input { width: 18px; height: 18px; min-height: 18px; flex: 0 0 18px; margin: 0; padding: 0; accent-color: var(--brand-navy); }
+
 /* Keep training content in the panel's existing typography and surfaces. */
 .howto-page { max-width: 1240px; }
 .howto-section-heading { max-width: 720px; margin-bottom: 24px; }
