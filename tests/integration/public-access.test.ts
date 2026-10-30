@@ -9,7 +9,7 @@ import { hash } from "argon2";
 import { prisma } from "../../src/lib/prisma";
 import { authenticatePublicClient, hasPublicValidationAccess } from "../../src/features/public/access";
 
-const ids = { admin: randomUUID(), client: randomUUID(), other: randomUUID(), tenant: randomUUID(), otherTenant: randomUUID(), validation: randomUUID(), otherValidation: randomUUID(), openValidation: randomUUID(), dataset: randomUUID(), otherDataset: randomUUID(), openDataset: randomUUID() };
+const ids = { admin: randomUUID(), client: randomUUID(), other: randomUUID(), query: randomUUID(), tenant: randomUUID(), otherTenant: randomUUID(), validation: randomUUID(), otherValidation: randomUUID(), openValidation: randomUUID(), dataset: randomUUID(), otherDataset: randomUUID(), openDataset: randomUUID() };
 const token = randomUUID(), otherToken = randomUUID(), openToken = randomUUID();
 const email = `public-access-${ids.client}@example.test`;
 const password = "Public-access-test-password-2026!";
@@ -21,6 +21,7 @@ beforeAll(async () => {
     { id: ids.admin, email: `${ids.admin}@example.test`, name: "Admin", role: "ADMIN", status: "ACTIVE", passwordHash },
     { id: ids.client, email, name: "Client", role: "CLIENT", status: "ACTIVE", tenantId: ids.tenant, passwordHash },
     { id: ids.other, email: `${ids.other}@example.test`, name: "Other client", role: "CLIENT", status: "ACTIVE", tenantId: ids.otherTenant, passwordHash },
+    { id: ids.query, email: `query-${ids.query}@example.test`, name: "Query only", role: "CONSULTATION_ONLY", status: "ACTIVE", tenantId: ids.tenant, passwordHash },
   ] });
   for (const [id, tenantId, publicToken, requireClientAccess, datasetId] of [
     [ids.validation, ids.tenant, token, true, ids.dataset],
@@ -31,6 +32,7 @@ beforeAll(async () => {
     await prisma.dataset.create({ data: { id: datasetId, tenantId, validationId: id, status: "PUBLISHED" } });
     await prisma.validation.update({ where: { id }, data: { activeDatasetId: datasetId } });
   }
+  await prisma.userValidationAccess.create({ data: { tenantId: ids.tenant, userId: ids.query, validationId: ids.validation } });
 });
 
 afterAll(async () => {
@@ -38,7 +40,7 @@ afterAll(async () => {
   await prisma.validation.updateMany({ where: { id: { in: [ids.validation, ids.otherValidation, ids.openValidation] } }, data: { activeDatasetId: null } });
   await prisma.dataset.deleteMany({ where: { id: { in: [ids.dataset, ids.otherDataset, ids.openDataset] } } });
   await prisma.validation.deleteMany({ where: { id: { in: [ids.validation, ids.otherValidation, ids.openValidation] } } });
-  await prisma.user.deleteMany({ where: { id: { in: [ids.admin, ids.client, ids.other] } } });
+  await prisma.user.deleteMany({ where: { id: { in: [ids.admin, ids.client, ids.other, ids.query] } } });
   await prisma.tenant.deleteMany({ where: { id: { in: [ids.tenant, ids.otherTenant] } } });
   await prisma.$disconnect();
 });
@@ -56,5 +58,19 @@ describe("protected public validation links", () => {
     expect(await authenticatePublicClient(token, email, "wrong-password")).toBeNull();
     await prisma.user.update({ where: { id: ids.client }, data: { sessionVersion: { increment: 1 } } });
     expect(await hasPublicValidationAccess(ids.validation, session!)).toBe(false);
+  });
+  it("limits consultation-only accounts to granted protected validations and revokes access immediately", async () => {
+    const queryEmail = `query-${ids.query}@example.test`;
+    const session = await authenticatePublicClient(token, queryEmail, password);
+    expect(session).toBeTruthy();
+    expect(await hasPublicValidationAccess(ids.validation, session!)).toBe(true);
+    expect(await hasPublicValidationAccess(ids.otherValidation, session!)).toBe(false);
+    expect(await hasPublicValidationAccess(ids.openValidation, session!)).toBe(true);
+    await prisma.userValidationAccess.deleteMany({ where: { userId: ids.query, validationId: ids.validation } });
+    expect(await hasPublicValidationAccess(ids.validation, session!)).toBe(false);
+    await prisma.userValidationAccess.create({ data: { tenantId: ids.tenant, userId: ids.query, validationId: ids.validation } });
+    await prisma.tenant.update({ where: { id: ids.tenant }, data: { status: "SUSPENDED" } });
+    expect(await hasPublicValidationAccess(ids.validation, session!)).toBe(false);
+    await prisma.tenant.update({ where: { id: ids.tenant }, data: { status: "ACTIVE" } });
   });
 });

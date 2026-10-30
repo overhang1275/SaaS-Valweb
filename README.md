@@ -83,6 +83,8 @@ La integración actual usa usuario/contraseña SMTP. Microsoft anunció que a fi
 
 - `ADMIN`: cuentas y usuarios; creación, carga y publicación de validaciones; configuración de almacenamiento, resultados y estado.
 - `CLIENT`: consulta sus validaciones y estadísticas, y edita textos y descripción. No carga registros o imágenes ni cambia la publicación.
+- `CONSULTATION_ONLY`: inicia sesión únicamente desde un enlace público protegido que le haya asignado el administrador; no accede al panel.
+- El administrador invita a usuarios de consulta desde **Usuarios → Administrar accesos de consulta** y puede conceder o retirar validaciones protegidas. Los clientes solo pueden ver los usuarios y permisos de consulta de su cuenta.
 - No hay registro público ni creación de administradores desde formularios.
 - Cada operación protegida consulta estado, rol y cuenta actuales. Modificar IDs o campos de formularios no permite cruzar cuentas.
 - Desactivar un usuario, suspender su cuenta o cambiar su contraseña revoca sus JWT anteriores. Reactivar el acceso exige iniciar sesión otra vez.

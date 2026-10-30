@@ -5,7 +5,7 @@ import { ZodError } from "zod";
 import { getActor } from "@/lib/auth";
 import type { ActionState } from "@/lib/action-state";
 import { limitRequest } from "@/features/identity/rate-limit";
-import { consumeAccessToken, createTenant, inviteUser, requestPasswordReset, revokeUserSessions, setTenantStatus, setUserStatus } from "@/features/identity/service";
+import { consumeAccessToken, createTenant, inviteConsultationUser, inviteUser, requestPasswordReset, revokeUserSessions, saveConsultationUserValidations, setTenantStatus, setUserStatus } from "@/features/identity/service";
 
 const value = (form: FormData, key: string) => String(form.get(key) ?? "");
 const success = (message: string): ActionState => ({ status: "success", message });
@@ -14,7 +14,7 @@ const error = (message: string): ActionState => ({ status: "error", message });
 function userMessage(cause: unknown) {
   if (cause instanceof Error && cause.message === "El correo SMTP no está configurado.") return "El envío de correo no está habilitado. Revisa la configuración del servicio de correo.";
   if (cause instanceof ZodError) return "Revisa los datos. Usa un correo válido, nombres de hasta 120 caracteres y contraseñas de 12 a 128 caracteres.";
-  const known = ["El correo SMTP no está configurado.", "Selecciona una cuenta activa.", "No puedes desactivar tu propio acceso.", "El usuario debe activar su invitación.", "El enlace no es válido o ha caducado.", "El acceso no está disponible."];
+  const known = ["El correo SMTP no está configurado.", "Selecciona una cuenta activa.", "Selecciona al menos una validación protegida.", "No puedes desactivar tu propio acceso.", "El usuario debe activar su invitación.", "El enlace no es válido o ha caducado.", "El acceso no está disponible.", "Selecciona únicamente validaciones protegidas de la cuenta indicada.", "No se encontró el usuario de consulta."];
   return cause instanceof Error && known.includes(cause.message) ? cause.message : "No se pudo completar la operación. Revisa los datos e inténtalo de nuevo.";
 }
 
@@ -41,6 +41,14 @@ export async function tenantStatusAction(_: ActionState, form: FormData) {
 
 export async function inviteUserAction(_: ActionState, form: FormData) {
   return adminMutation(actor => inviteUser(actor, { name: value(form, "name"), email: value(form, "email"), tenantId: value(form, "tenantId") }), "Invitación agregada a la cola de correo. El enlace vence en 48 horas.");
+}
+
+export async function inviteConsultationUserAction(_: ActionState, form: FormData) {
+  return adminMutation(actor => inviteConsultationUser(actor, { name: value(form, "name"), email: value(form, "email"), tenantId: value(form, "tenantId"), validationIds: form.getAll("validationIds").map(String).filter(Boolean) }), "Invitación enviada. La persona podrá consultar solo las validaciones seleccionadas.");
+}
+
+export async function consultationUserValidationsAction(_: ActionState, form: FormData) {
+  return adminMutation(actor => saveConsultationUserValidations(actor, value(form, "id"), form.getAll("validationIds").map(String).filter(Boolean)), "Permisos de consulta actualizados.");
 }
 
 export async function userStatusAction(_: ActionState, form: FormData) {

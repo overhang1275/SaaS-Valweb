@@ -15,7 +15,11 @@ export async function authenticatePublicClient(token: string, email: string, pas
   const validation = await prisma.validation.findFirst({ where: { ...available, publicToken: token }, select: { id: true, tenantId: true, requireClientAccess: true } });
   if (!validation?.requireClientAccess) return null;
   const actor = await authenticate(email, password);
-  return actor?.role === "CLIENT" && actor.tenantId === validation.tenantId ? createPublicAccessToken(actor, validation.tenantId) : null;
+  if (!actor || actor.tenantId !== validation.tenantId) return null;
+  if (actor.role === "CLIENT") return createPublicAccessToken(actor, validation.tenantId);
+  if (actor.role !== "CONSULTATION_ONLY") return null;
+  const grant = await prisma.userValidationAccess.findUnique({ where: { userId_validationId: { userId: actor.id, validationId: validation.id } }, select: { tenantId: true } });
+  return grant?.tenantId === validation.tenantId ? createPublicAccessToken(actor, validation.tenantId) : null;
 }
 
 export async function createPublicAccessToken(actor: Actor, tenantId: string) {
@@ -32,7 +36,11 @@ export async function hasPublicValidationAccess(validationId: string, accessToke
     const parsed = z.object({ sub: z.uuid(), sessionVersion: z.number().int().nonnegative(), tenantId: z.uuid() }).safeParse(claims);
     if (!parsed.success || parsed.data.tenantId !== validation.tenantId) return false;
     const actor = await resolveActor(parsed.data.sub, parsed.data.sessionVersion);
-    return actor?.role === "CLIENT" && actor.tenantId === validation.tenantId;
+    if (!actor || actor.tenantId !== validation.tenantId) return false;
+    if (actor.role === "CLIENT") return true;
+    if (actor.role !== "CONSULTATION_ONLY") return false;
+    const grant = await prisma.userValidationAccess.findUnique({ where: { userId_validationId: { userId: actor.id, validationId: validation.id } }, select: { tenantId: true } });
+    return grant?.tenantId === validation.tenantId;
   } catch { return false; }
 }
 

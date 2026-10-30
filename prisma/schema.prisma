@@ -8,6 +8,7 @@ datasource db {
 enum Role {
   ADMIN
   CLIENT
+  CONSULTATION_ONLY
 }
 enum UserStatus {
   INVITED
@@ -45,6 +46,8 @@ model User {
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
   tokens AccessToken[]
   validations Validation[]
+  queryValidationAccesses UserValidationAccess[]
+  @@unique([tenantId, id])
   @@index([tenantId])
 }
 model AccessToken {
@@ -131,6 +134,7 @@ model Validation {
   recordImages RecordImage[]
   imports ImportJob[]
   dailyStats ValidationDailyStat[]
+  queryUserAccesses UserValidationAccess[]
   publicToken String @unique @db.Uuid
   status ValidationStatus @default(DRAFT)
   deletedAt DateTime? @db.Timestamptz(3)
@@ -268,4 +272,16 @@ model ValidationDailyStat {
   found BigInt @default(0)
   notFound BigInt @default(0)
   @@id([validationId, date])
+}
+
+
+model UserValidationAccess {
+  tenantId String @db.Uuid
+  userId String @db.Uuid
+  validationId String @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  user User @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+  validation Validation @relation(fields: [tenantId, validationId], references: [tenantId, id], onDelete: Cascade)
+  @@id([userId, validationId])
+  @@index([tenantId, validationId])
 }

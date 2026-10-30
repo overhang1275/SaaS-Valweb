@@ -18,7 +18,7 @@ export const authOptions: NextAuthOptions = {
       const email = credentials.email.trim().toLowerCase().slice(0, 254);
       if (!await limitRequest("login", email, 5, 900)) return null;
       const actor = await authenticate(email, credentials.password);
-      return actor ? { id: actor.id, sessionVersion: actor.sessionVersion } : null;
+      return actor && actor.role !== "CONSULTATION_ONLY" ? { id: actor.id, sessionVersion: actor.sessionVersion } : null;
     },
   })],
   callbacks: {
@@ -43,6 +43,7 @@ export async function getActor() {
 export async function requireActor(admin = false) {
   const actor = await getActor();
   if (!actor) redirect("/login");
+  if (actor.role === "CONSULTATION_ONLY") redirect("/login");
   if (admin && actor.role !== "ADMIN") redirect("/dashboard");
   return actor;
 }

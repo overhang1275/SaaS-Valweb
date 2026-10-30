@@ -26,13 +26,13 @@ async function prepareResetEmail(id: string) {
     const outbox = await tx.accessEmailOutbox.findUnique({ where: { id } });
     if (!outbox || outbox.accessTokenId || outbox.purpose !== 'RESET') return;
     const candidate = await tx.user.findUnique({ where: { email: outbox.recipient }, include: { tenant: true } });
-    if (!candidate || candidate.status !== 'ACTIVE' || (candidate.role === 'CLIENT' && candidate.tenant?.status !== 'ACTIVE')) {
+    if (!candidate || candidate.status !== 'ACTIVE' || (candidate.role !== 'ADMIN' && candidate.tenant?.status !== 'ACTIVE')) {
       await tx.accessEmailOutbox.delete({ where: { id } });
       return;
     }
     await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${candidate.id}::uuid FOR UPDATE`;
     const user = await tx.user.findUnique({ where: { id: candidate.id }, include: { tenant: true } });
-    if (!user || user.status !== 'ACTIVE' || (user.role === 'CLIENT' && user.tenant?.status !== 'ACTIVE')) {
+    if (!user || user.status !== 'ACTIVE' || (user.role !== 'ADMIN' && user.tenant?.status !== 'ACTIVE')) {
       await tx.accessEmailOutbox.delete({ where: { id } });
       return;
     }
@@ -46,7 +46,7 @@ async function prepareResetEmail(id: string) {
 
 function eligible(outbox: { accessToken: { usedAt: Date | null; expiresAt: Date; purpose: string; user: { status: string; role: string; tenant: { status: string } | null } } | null }) {
   const token = outbox.accessToken;
-  return Boolean(token && !token.usedAt && token.expiresAt > new Date() && token.user.status !== 'DISABLED' && (token.purpose !== 'RESET' || token.user.status === 'ACTIVE') && (token.user.role !== 'CLIENT' || token.user.tenant?.status === 'ACTIVE'));
+  return Boolean(token && !token.usedAt && token.expiresAt > new Date() && token.user.status !== 'DISABLED' && (token.purpose !== 'RESET' || token.user.status === 'ACTIVE') && (token.user.role === 'ADMIN' || token.user.tenant?.status === 'ACTIVE'));
 }
 
 function errorCode(cause: unknown) {
