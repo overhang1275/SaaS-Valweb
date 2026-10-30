@@ -45,9 +45,11 @@ node_modules/
 !/docs/superpowers/specs/
 /docs/superpowers/specs/*
 !/docs/superpowers/specs/2026-10-30-editar-nombre-cliente-design.md
+!/docs/superpowers/specs/2026-10-30-anatomy-usos-design.md
 !/docs/superpowers/plans/
 /docs/superpowers/plans/*
 !/docs/superpowers/plans/2026-10-30-editar-nombre-cliente.md
+!/docs/superpowers/plans/2026-10-30-anatomy-csv.md
 /design-resources/
 *.log
 

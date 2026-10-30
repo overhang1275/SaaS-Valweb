@@ -17,7 +17,7 @@ export async function repairNfsImageFolders(root: FileHandle, folderNames: strin
       throw cause;
     }
     try {
-      await folder.chown(-1, groupId);
+      if ((await folder.stat()).gid !== groupId) await folder.chown(-1, groupId);
       await folder.chmod(0o2770);
       const inbox = await childDirectory(folder, "por_procesar", true, 0o2770);
       await inbox.close();

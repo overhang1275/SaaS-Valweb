@@ -44,6 +44,10 @@ El cliente asignado podrá cambiar los textos y la descripción desde su ficha. 
 
 ## 3. Cargar y publicar registros
 
+![Mesa de inspección CSV con entrada, mapeo, revisión y publicación](./figuras/carga-csv/carga-csv.svg)
+
+Explora la [simulación de carga y publicación CSV](./figuras/carga-csv/index.html) para practicar con tres registros ficticios, corregir un mapeo y comprobar por qué un lote con errores no se publica. Descarga el HTML y ábrelo en un navegador si tu visor del repositorio solo muestra el código. La simulación funciona sin conexión y no modifica datos de Valweb. Publicar una base y activar su enlace son pasos separados.
+
 1. Abre la validación y entra en **Registros**.
 2. Carga un CSV UTF-8 con encabezados. Asigna las columnas `folio` y `alfanum`; `tipo` y `otro` son opcionales.
 3. Revisa el mapeo y el reporte de filas. Corrige duplicados o datos no válidos antes de publicar.

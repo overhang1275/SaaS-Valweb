@@ -4,7 +4,7 @@ import { useActionState, useId, useRef, type ReactNode } from "react";
 import { useConfirm } from "@/components/ui/confirmation";
 import { initialActionState, type ActionState } from "@/lib/action-state";
 
-export function ActionForm({ action, children, label, pendingLabel = "Guardandoâ€¦", compact = false, confirmMessage, resetOnSuccess = false, disabled = false }: {
+export function ActionForm({ action, children, label, pendingLabel = "Guardandoâ€¦", compact = false, confirmMessage, resetOnSuccess = false, disabled = false, icon }: {
   action: (state: ActionState, form: FormData) => Promise<ActionState>;
   children?: ReactNode;
   label: string;
@@ -13,6 +13,7 @@ export function ActionForm({ action, children, label, pendingLabel = "Guardandoâ
   confirmMessage?: string;
   resetOnSuccess?: boolean;
   disabled?: boolean;
+  icon?: ReactNode;
 }) {
   const [state, formAction, pending] = useActionState(action, initialActionState);
   const messageId = useId();
@@ -28,7 +29,7 @@ export function ActionForm({ action, children, label, pendingLabel = "Guardandoâ
   }}>
     {(!resetOnSuccess || state.status !== "success") && <>
       {children}
-      <button className={compact ? "button button-secondary" : "button"} disabled={pending || disabled} type="submit">{pending ? pendingLabel : label}</button>
+      <button className={`${compact ? "button button-secondary" : "button"}${icon ? " button-icon" : ""}`} disabled={pending || disabled} type="submit" aria-label={icon ? (pending ? pendingLabel : label) : undefined} title={icon ? (pending ? pendingLabel : label) : undefined}>{icon}{icon ? <span className="sr-only">{pending ? pendingLabel : label}</span> : pending ? pendingLabel : label}</button>
     </>}
     <div id={messageId} role={state.status === "error" ? "alert" : "status"} aria-live="polite">
       {state.message && <p className={`feedback ${state.status}`}>{state.message}</p>}

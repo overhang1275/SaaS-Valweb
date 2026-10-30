@@ -25,8 +25,8 @@ export async function childDirectory(parent: FileHandle, name: string, create: b
   const directory = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   try {
     if (create && mode !== 0o700) {
-      const parentInfo = await parent.stat();
-      await directory.chown(-1, parentInfo.gid);
+      const [parentInfo, directoryInfo] = await Promise.all([parent.stat(), directory.stat()]);
+      if (directoryInfo.gid !== parentInfo.gid) await directory.chown(-1, parentInfo.gid);
       await directory.chmod(mode);
     }
     return directory;
