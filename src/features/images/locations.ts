@@ -8,11 +8,13 @@ import { lockValidation } from "@/features/validations/service";
 import type { ImageStorageLocation, Prisma, StorageKind } from "@/generated/prisma/client";
 import { ImageError } from "./limits";
 import { childDirectory, handlePath, imageRootPath, openImageStorageRoot, pathsOverlap } from "./filesystem";
+import { repairNfsImageFolders } from "./permissions";
 import { lockImageLocation } from "./storage";
 
 const locationSchema = z.object({ kind: z.enum(["LOCAL", "NFS"]), rootPath: z.string() });
 const folderPattern = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}_[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const inboxImage = /\.(?:jpe?g|png|webp)$/i;
+const supplementaryGroups = () => typeof process.getgroups === "function" ? process.getgroups() : [];
 
 async function pendingImageCount(folder: FileHandle) {
   const inbox = await childDirectory(folder, "por_procesar", false);
@@ -101,15 +103,23 @@ export async function selectValidationImageStorage(actor: Actor, id: string, kin
 async function locationStatuses(locations: ImageStorageLocation[]) {
   return Promise.all((["LOCAL", "NFS"] as const).map(async kind => {
     const location = locations.find(row => row.kind === kind);
-    let available = false;
+    let available = false, ownerUid: number | null = null, groupGid: number | null = null, mode: string | null = null, canRepairPermissions = false;
     if (location) {
       try {
         const handle = await openImageStorageRoot(location.rootPath, kind);
-        try { await access(handlePath(handle), constants.R_OK | constants.W_OK | constants.X_OK); available = true; }
+        try {
+          const info = await handle.stat();
+          ownerUid = info.uid; groupGid = info.gid; mode = (info.mode & 0o7777).toString(8).padStart(4, "0");
+          const path = handlePath(handle);
+          const readable = await access(path, constants.R_OK | constants.X_OK).then(() => true, () => false);
+          const writable = await access(path, constants.W_OK).then(() => true, () => false);
+          available = readable && writable;
+          canRepairPermissions = kind === "NFS" && available && Number.isInteger(groupGid) && groupGid >= 1000 && groupGid <= 1999 && supplementaryGroups().includes(groupGid);
+        }
         finally { await handle.close(); }
       } catch { /* Availability is reported without exposing filesystem diagnostics. */ }
     }
-    return { kind, configured: Boolean(location), available, rootPath: location?.rootPath ?? "" };
+    return { kind, configured: Boolean(location), available, rootPath: location?.rootPath ?? "", ownerUid, groupGid, mode, canRepairPermissions };
   }));
 }
 
@@ -119,6 +129,27 @@ export async function getGlobalImageLocations(actor: Actor) {
     return tx.imageStorageLocation.findMany();
   });
   return locationStatuses(locations);
+}
+
+export async function repairConfiguredNfsImageFolders(actor: Actor) {
+  const snapshot = await prisma.$transaction(async tx => {
+    const user = await currentActor(tx, actor, true);
+    const location = await tx.imageStorageLocation.findUnique({ where: { kind: "NFS" } });
+    const validations = await tx.validation.findMany({ where: { imageStorageKind: "NFS" }, select: { id: true, tenantId: true } });
+    return { user, location, validations };
+  });
+  if (!snapshot.location) throw new ImageError(409, "Configura primero la ruta NFS en Ajustes generales.");
+  const root = await openImageStorageRoot(snapshot.location.rootPath, "NFS");
+  try {
+    const groupId = (await root.stat()).gid;
+    if (!supplementaryGroups().includes(groupId)) throw new ImageError(409, "Valweb no pertenece al GID de la raíz NFS. Configura el mismo grupo en la NAS y el LXC.");
+    const result = await repairNfsImageFolders(root, snapshot.validations.map(row => `${row.tenantId}_${row.id}`), groupId);
+    await prisma.auditLog.create({ data: { actorId: snapshot.user.id, action: "NFS_IMAGE_PERMISSIONS_REPAIRED", metadata: { groupId, ...result } } });
+    return result;
+  } catch (cause) {
+    if (cause instanceof ImageError) throw cause;
+    throw new ImageError(503, "No se pudieron reparar las carpetas NFS. Comprueba el GID de la raíz y que valweb sea propietario de las carpetas.");
+  } finally { await root.close(); }
 }
 
 export async function getValidationImageStorage(actor: Actor, id: string) {

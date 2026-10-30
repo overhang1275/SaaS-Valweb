@@ -197,7 +197,8 @@ it("creates the validation folder idempotently, preserves originals and hides se
     expect((await getValidationImageStorage(actors.client, validation.id)).folderState).toBe("ready");
     expect((await getValidationImageStorage(actors.admin, validation.id)).fullPath).toBe(path);
     expect((await getValidationImageStorage({ ...actors.client, role: "ADMIN" }, validation.id)).fullPath).toBeUndefined();
-    expect((await getGlobalImageLocations(actors.admin)).find(row => row.kind === "LOCAL")).toMatchObject({ rootPath: root, configured: true, available: true });
+    const rootInfo = await stat(root), localStatus = (await getGlobalImageLocations(actors.admin)).find(row => row.kind === "LOCAL");
+    expect(localStatus).toMatchObject({ rootPath: root, configured: true, available: true, ownerUid: rootInfo.uid, groupGid: rootInfo.gid, mode: (rootInfo.mode & 0o7777).toString(8).padStart(4, "0") });
   });
 });
 

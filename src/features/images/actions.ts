@@ -6,7 +6,7 @@ import { getActor } from "@/lib/auth";
 import type { ActionState } from "@/lib/action-state";
 import { limitRequest } from "@/features/identity/rate-limit";
 import { ImageError } from "./limits";
-import { createValidationImageFolder, saveGlobalImageLocation, selectValidationImageStorage } from "./locations";
+import { createValidationImageFolder, repairConfiguredNfsImageFolders, saveGlobalImageLocation, selectValidationImageStorage } from "./locations";
 
 async function storageActor() {
   const actor = await getActor();
@@ -31,6 +31,15 @@ export async function saveGlobalImageLocationAction(_: ActionState, form: FormDa
     revalidatePath("/admin/ajustes");
     revalidatePath("/validaciones/[id]/editar", "page");
     return { status: "success", message: "Destino guardado y acceso verificado." };
+  } catch (cause) { return failure(cause); }
+}
+export async function repairConfiguredNfsImageFoldersAction(_: ActionState, _form: FormData): Promise<ActionState> {
+  try {
+    const actor = await storageActor();
+    if (actor.role !== "ADMIN") throw new ImageError(403, "Solo un administrador puede reparar permisos NFS.");
+    const result = await repairConfiguredNfsImageFolders(actor);
+    revalidatePath("/admin/ajustes");
+    return { status: "success", message: `Permisos reparados en ${result.repaired} carpetas; ${result.missing} no tenían carpeta existente.` };
   } catch (cause) { return failure(cause); }
 }
 export async function selectValidationImageStorageAction(_: ActionState, form: FormData): Promise<ActionState> {
