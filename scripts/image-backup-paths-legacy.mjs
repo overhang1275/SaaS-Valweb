@@ -23,7 +23,7 @@ async function main() {
       const info = await statfs(row.rootPath);
       if (row.kind === "NFS" && info.type !== 0x6969) throw new Error("NFS is unavailable");
     }
-    return rows.map(row => row.rootPath);
+    return rows.filter(row => row.kind === "LOCAL").map(row => row.rootPath);
   } finally {
     await pool.end();
   }

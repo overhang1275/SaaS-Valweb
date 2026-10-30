@@ -28,7 +28,7 @@ export async function managedImageBackupPaths() {
     const root = await openImageStorageRoot(location.rootPath, location.kind);
     try { await access(handlePath(root), constants.R_OK | constants.X_OK); }
     finally { await root.close(); }
-    roots.push(resolve(location.rootPath));
+    if (kind === "LOCAL") roots.push(resolve(location.rootPath));
   }
   return roots.sort();
 }

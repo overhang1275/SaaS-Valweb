@@ -15,6 +15,7 @@ vi.mock("../../src/features/images/filesystem", () => ({
   handlePath: () => mocks.root,
   openImageStorageRoot: vi.fn(async () => ({ close: vi.fn() })),
 }));
+import { openImageStorageRoot } from "../../src/features/images/filesystem";
 import { managedImageBackupPaths } from "../../scripts/image-backup-paths";
 
 let root: string;
@@ -37,11 +38,12 @@ it("uses only the legacy image path when the new database model is absent", asyn
   expect(mocks.prisma.imageStorageLocation.findMany).not.toHaveBeenCalled();
 });
 
-it("backs up a persisted root used by a validation or managed image key", async () => {
+it("verifies NFS but returns only local managed roots for the installer tar backup", async () => {
   mocks.prisma.validation.findMany.mockResolvedValue([{ imageStorageKind: "NFS" }]);
   mocks.prisma.recordImage.findMany.mockResolvedValue([{ storageKey: "v1:LOCAL:tenant_validation:abc.webp" }]);
   mocks.prisma.imageStorageLocation.findMany.mockResolvedValue([{ kind: "LOCAL", rootPath: "/var/lib/valweb/local" }, { kind: "NFS", rootPath: "/mnt/images" }]);
-  expect(await managedImageBackupPaths()).toEqual(["/mnt/images", "/var/lib/valweb/local"]);
+  expect(await managedImageBackupPaths()).toEqual(["/var/lib/valweb/local"]);
+  expect(openImageStorageRoot).toHaveBeenCalledWith("/mnt/images", "NFS");
 });
 
 it("fails rather than silently skipping a required but unconfigured root", async () => {

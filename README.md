@@ -147,7 +147,7 @@ La vista previa pasa por `GET /api/validations/:id/image`, exige sesión vigente
 
 El nuevo archivo se guarda antes de cambiar la referencia en una transacción. El anterior se retira después del commit. Si falla la confirmación de commit, se comprueba la referencia antes de limpiar para no borrar una imagen que sí quedó guardada. Un fallo de limpieza deja un archivo privado huérfano, sin URL pública.
 
-Ejecuta `npm run images:cleanup` desde una tarea programada. Elimina solo WebP huérfanas antiguas dentro de `procesadas/` y capturas de trabajos terminales con más de24horas; conserva archivos publicados, `por_procesar/` y capturas de trabajos reintentables o pendientes de revisión. El instalador incluye en el respaldo cada raíz persistida que use la base y falla si un destino requerido no está disponible. Para respaldo manual, incluye también las raíces local/NFS configuradas y revisa que el montaje esté activo.
+Ejecuta `npm run images:cleanup` desde una tarea programada. Elimina solo WebP huérfanas antiguas dentro de `procesadas/` y capturas de trabajos terminales con más de24horas; conserva archivos publicados, `por_procesar/` y capturas de trabajos reintentables o pendientes de revisión. El respaldo del instalador incluye la base y las rutas locales. Verifica que las raíces NFS requeridas estén disponibles, pero no las recorre ni las copia: configura snapshots o respaldos en la NAS para evitar incluir directorios internos como `.snapshots` y depender de permisos remotos desde el LXC. Para recuperación, conserva ambos respaldos: el del instalador y el de la NAS.
 
 ## Interfaz de Computer Forms
 
