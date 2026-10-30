@@ -10,6 +10,7 @@ vi.mock("../../src/lib/prisma", () => {
 });
 import { prisma } from "../../src/lib/prisma";
 import { childDirectory, openDirectory } from "../../src/features/images/filesystem";
+import { repairNfsImageFolders } from "../../src/features/images/permissions";
 import { writeImageFile, readImageFile, removeImageFile } from "../../src/features/images/storage";
 
 const target = { kind: "LOCAL" as const, tenantId: randomUUID(), validationId: randomUUID() };
@@ -35,6 +36,23 @@ it("creates the FTP intake folder with shared group access despite a restrictive
       expect(details.gid).toBe((await root.stat()).gid);
     } finally { await folder.close(); }
   } finally { await root.close(); process.umask(oldUmask); }
+});
+
+it("repairs existing FTP folders without changing processed or unrelated directories", async () => {
+  const folderName = `${randomUUID()}_${randomUUID()}`;
+  const folderPath = join(configured, folderName);
+  await mkdir(join(folderPath, "por_procesar"), { recursive: true, mode: 0o700 });
+  await mkdir(join(folderPath, "procesadas"), { mode: 0o700 });
+  await mkdir(join(configured, "unrelated"), { mode: 0o700 });
+  const root = await openDirectory(configured, false), groupId = (await root.stat()).gid;
+  try {
+    await expect(repairNfsImageFolders(root, [folderName], groupId + 1)).rejects.toThrow(/GID/);
+    expect(await repairNfsImageFolders(root, [folderName, `${randomUUID()}_${randomUUID()}`], groupId)).toEqual({ repaired: 1, missing: 1 });
+  } finally { await root.close(); }
+  expect((await stat(folderPath)).mode & 0o2777).toBe(0o2770);
+  expect((await stat(join(folderPath, "por_procesar"))).mode & 0o2777).toBe(0o2770);
+  expect((await stat(join(folderPath, "procesadas"))).mode & 0o777).toBe(0o700);
+  expect((await stat(join(configured, "unrelated"))).mode & 0o2777).toBe(0o700);
 });
 
 it("writes a self-contained key in the validation folder and keeps FTP originals", async () => {

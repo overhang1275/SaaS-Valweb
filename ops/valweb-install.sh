@@ -12,6 +12,8 @@ readonly DATA=/var/lib/valweb
 readonly BACKUPS=/var/backups/valweb
 readonly SERVICE=valweb
 readonly WORKER=valweb-imports
+readonly IMAGE_GROUP=valweb-images
+IMAGE_GID=${VALWEB_IMAGE_GID:-1500}
 readonly PORT_DEFAULT=3000
 TMP=""
 OLD_LINK=""
@@ -35,6 +37,7 @@ ask(){ local prompt=$1 default=$2 value; read -r -p "$prompt [$default]: " value
 yesno(){ local prompt=$1 answer; read -r -p "$prompt [s/N]: " answer; [[ $answer =~ ^[sS]$ ]]; }
 envq(){ local value=$1; [[ $value != *$'\n'* && $value != *$'\r'* ]] || die 'No se admiten saltos de línea en variables de entorno.'; value=${value//\\/\\\\}; value=${value//\"/\\\"}; printf '"%s"' "$value"; }
 valid_url(){ [[ $1 =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?$ ]]; }
+valid_image_gid(){ [[ ${1:-} =~ ^[0-9]+$ ]] && (( 10#$1 >= 1000 && 10#$1 <= 1999 )); }
 getenv(){ sed -n "s/^$1=//p" "$CONFIG" | tail -n1 | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"; }
 cleanup(){ [[ -z $TMP ]] || rm -rf -- "$TMP"; }
 trap cleanup EXIT
@@ -47,9 +50,7 @@ own_data_dirs(){
   done
 }
 run_as_valweb(){
-  local uid gid
-  uid=$(id -u valweb); gid=$(id -g valweb)
-  (cd "$RELEASE" && HOME="$VALWEB_HOME" node --input-type=commonjs -e 'const fs=require("node:fs"),{spawnSync}=require("node:child_process"); const [config,uid,gid,cwd,command,...args]=process.argv.slice(1); let values; try{values=require("dotenv").parse(fs.readFileSync(config,"utf8"))}catch{console.error("No se pudo leer la configuración de Valweb");process.exit(78)} const env={...process.env,...values,HOME:process.env.HOME,USER:"valweb",LOGNAME:"valweb"}; if(!env.DATABASE_URL?.trim()){console.error("DATABASE_URL está vacía en /etc/valweb/.env; corrígela antes de continuar");process.exit(78)} const result=spawnSync(command,args,{cwd,uid:Number(uid),gid:Number(gid),env,stdio:"inherit"}); if(result.error){console.error("No se pudo iniciar el comando de Valweb");process.exit(1)} process.exit(result.status??1)' "$CONFIG" "$uid" "$gid" "$RELEASE" "$@")
+  (cd "$RELEASE" && HOME="$VALWEB_HOME" node --input-type=commonjs -e 'const fs=require("node:fs"),{spawnSync}=require("node:child_process"); const [config,cwd,command,...args]=process.argv.slice(1); let values; try{values=require("dotenv").parse(fs.readFileSync(config,"utf8"))}catch{console.error("No se pudo leer la configuración de Valweb");process.exit(78)} const env={...process.env,...values,HOME:process.env.HOME,USER:"valweb",LOGNAME:"valweb"}; if(!env.DATABASE_URL?.trim()){console.error("DATABASE_URL está vacía en /etc/valweb/.env; corrígela antes de continuar");process.exit(78)} const result=spawnSync("runuser",["--preserve-environment","--user","valweb","--",command,...args],{cwd,env,stdio:"inherit"}); if(result.error){console.error("No se pudo iniciar el comando de Valweb");process.exit(1)} process.exit(result.status??1)' "$CONFIG" "$RELEASE" "$@")
 }
 on_error(){ local code=$?; trap - ERR; recover; if [[ -n $OLD_LINK ]]; then printf '\nERROR: Falló la línea %s (código %s). Se restauró el release anterior; el esquema de base de datos no se revierte automáticamente. Respaldo: %s\n' "$1" "$code" "$BACKUPS" >&2; else printf '\nERROR: Falló la línea %s (código %s). Se detuvieron los servicios de Valweb; conserva la base de datos y revisa el respaldo: %s\n' "$1" "$code" "$BACKUPS" >&2; fi; exit "$code"; }
 trap 'on_error "$LINENO"' ERR
@@ -68,6 +69,7 @@ HELP
 }
 
 check(){
+  valid_image_gid "$IMAGE_GID" || die 'VALWEB_IMAGE_GID debe estar entre 1000 y 1999 y coincidir con el grupo configurado en la NAS.'
   [[ -n ${BASH_VERSION:-} ]] || die 'Ejecuta con Bash.'
   [[ $EUID -eq 0 ]] || die 'Ejecuta como root dentro del LXC.'
   [[ -r /etc/os-release ]] || die 'No se identifica la distribución.'
@@ -82,7 +84,7 @@ check(){
 }
 
 [[ ${1:-} == --help || ${1:-} == -h ]] && { usage; exit 0; }
-[[ ${1:-} == --check ]] && { bash -n "$0" && [[ $(envq 'a b#$x"') == '"a b#$x\""' ]] && valid_url 'https://val-web.computerform.com.mx' && ! valid_url 'https://example.test/path' && printf 'Sintaxis y validaciones correctas.\n'; exit; }
+[[ ${1:-} == --check ]] && { bash -n "$0" && [[ $(envq 'a b#$x"') == '"a b#$x\""' ]] && valid_url 'https://val-web.computerform.com.mx' && ! valid_url 'https://example.test/path' && valid_image_gid "$IMAGE_GID" && printf 'Sintaxis y validaciones correctas.\n'; exit; }
 [[ $# -eq 0 ]] || { usage >&2; exit 2; }
 check
 
@@ -114,6 +116,14 @@ node -e 'if(Number(process.versions.node.split(".")[0])<24)process.exit(1)' || d
 mkdir -p "$RELEASES" "$DATA/images" "$DATA/imports" "$BACKUPS" /etc/valweb
 chmod 700 "$BACKUPS"
 if ! id valweb >/dev/null 2>&1; then useradd --system --user-group --home-dir "$APP" --create-home --shell /usr/sbin/nologin valweb; fi
+if getent group "$IMAGE_GROUP" >/dev/null; then
+  [[ $(getent group "$IMAGE_GROUP" | cut -d: -f3) == "$IMAGE_GID" ]] || die "El grupo $IMAGE_GROUP ya existe con otro GID."
+elif getent group "$IMAGE_GID" >/dev/null; then
+  die "El GID $IMAGE_GID ya pertenece a otro grupo. Configura VALWEB_IMAGE_GID con el GID de la NAS que esté libre en este LXC."
+else
+  groupadd --gid "$IMAGE_GID" "$IMAGE_GROUP"
+fi
+usermod --append --groups "$IMAGE_GROUP" valweb
 VALWEB_HOME=$(getent passwd valweb | cut -d: -f6)
 [[ -n $VALWEB_HOME && -d $VALWEB_HOME ]] || die 'No existe el directorio personal de la cuenta valweb.'
 VALWEB_GROUP=$(id -gn valweb)
@@ -168,6 +178,14 @@ if [[ $MODE != keep ]]; then
   yesno '¿Continuar con esta versión?' || exit 0
 fi
 
+REPAIR_NFS_PERMISSIONS=0
+if [[ $INSTALLED != ninguno ]]; then
+  if [[ $MODE == keep ]]; then CANDIDATE_RELEASE=$APP/current; else CANDIDATE_RELEASE=$TMP/source; fi
+  if [[ -f $CANDIDATE_RELEASE/scripts/repair-nfs-image-permissions.ts ]]; then
+    if yesno '¿Reparar permisos del grupo FTP en carpetas NFS de validaciones existentes?'; then REPAIR_NFS_PERMISSIONS=1; fi
+  fi
+fi
+
 if [[ $INSTALLED != ninguno ]]; then
   [[ -f $CONFIG ]] || die 'Hay un release existente pero falta /etc/valweb/.env. Recupéralo antes de actualizar.'
   RELEASE="$APP/current"
@@ -180,6 +198,8 @@ if [[ $INSTALLED != ninguno ]]; then
   systemctl stop "$SERVICE" 2>/dev/null || true
   userctl stop "$WORKER" 2>/dev/null || true
   SERVICES_STOPPED=1
+  systemctl restart "user@$(id -u valweb).service"
+  [[ -S "/run/user/$(id -u valweb)/bus" ]] || die 'systemd no actualizó los grupos suplementarios de valweb para el worker.'
   (cd "$APP/current" && node --input-type=commonjs -e 'require("dotenv").config({path:process.argv[1],override:true}); const {spawnSync}=require("node:child_process"); const u=new URL(process.env.DATABASE_URL); const env={...process.env,PGHOST:u.hostname,PGPORT:u.port||"5432",PGUSER:decodeURIComponent(u.username),PGPASSWORD:decodeURIComponent(u.password),PGDATABASE:decodeURIComponent(u.pathname.slice(1)),PGSSLMODE:u.searchParams.get("sslmode")||"disable"}; const r=spawnSync("pg_dump",["--format=custom","--no-owner","--no-acl","--file",process.argv[2],"--dbname",env.PGDATABASE],{env,stdio:"inherit"}); process.exit(r.status??1)' "$CONFIG" "$BACKUPS/$STAMP.dump")
   if [[ -f $APP/current/scripts/image-backup-paths.ts ]]; then
     IMAGE_PATHS_JSON=$(run_as_valweb node --import tsx scripts/image-backup-paths.ts) || die 'No se pudieron verificar los destinos de imágenes para el respaldo.'
@@ -294,6 +314,9 @@ fi
 if [[ -f $RELEASE/scripts/ensure-local-image-storage.ts ]]; then
   run_as_valweb env DEFAULT_LOCAL_IMAGE_ROOT="$DATA/images" node --import tsx scripts/ensure-local-image-storage.ts
 fi
+if (( REPAIR_NFS_PERMISSIONS )); then
+  run_as_valweb node --import tsx scripts/repair-nfs-image-permissions.ts "$IMAGE_GID" || die 'No se pudieron reparar los permisos de las carpetas NFS existentes.'
+fi
 
 STAMP=${STAMP:-$(date -u +%Y%m%dT%H%M%SZ)}
 VALWEB_UID=$(id -u valweb)
@@ -309,6 +332,7 @@ Wants=network-online.target
 Type=simple
 User=valweb
 Group=$VALWEB_GROUP
+SupplementaryGroups=$IMAGE_GROUP
 WorkingDirectory=$APP/current
 EnvironmentFile=$CONFIG
 Environment=NODE_ENV=production
@@ -392,6 +416,6 @@ fi
 say "Valweb está activo. commit ${TARGET:0:12}."
 say "URL: $DOMAIN  |  Respaldo: $BACKUPS  |  Servicios: $SERVICE, $WORKER, nginx"
 say "Imágenes: LOCAL predeterminado en $DATA/images; cada validación usa <tenantUUID>_<validationUUID>/por_procesar/ y /procesadas/."
-say "FTP: concede a la cuenta de carga acceso de escritura y listado en por_procesar/ y lectura de sus archivos; alinea el GID del NFS externamente."
+say "FTP: configura el grupo NAS con GID $IMAGE_GID, asígnalo a la raíz NFS con ACL heredable y agrega las cuentas FTP; Valweb crea $IMAGE_GROUP localmente."
 say 'SMTP debe usar 587/STARTTLS u Office365; HTTPS debe terminar en un proxy TLS externo.'
 say 'Recuperación: detén servicios, restaura el symlink de release anterior y restaura el dump PostgreSQL solo tras confirmar el respaldo.'

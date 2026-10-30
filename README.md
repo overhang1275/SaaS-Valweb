@@ -18,6 +18,8 @@ El instalador configura Valweb dentro de un contenedor LXC existente; no crea co
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/overhang1275/SaaS-Valweb/refs/heads/main/ops/valweb-install.sh)"
 ```
 
+El instalador crea el grupo local `valweb-images` con GID `1500` por defecto y agrega el servicio `valweb`. Si ese GID está ocupado, configura `VALWEB_IMAGE_GID` con un ID libre entre `1000` y `1999`, y usa el mismo en la NAS. En la NAS asigna ese grupo a la raíz NFS con permisos y ACL heredables y agrega las cuentas FTP autorizadas. En actualizaciones, el instalador pregunta si debe reparar permisos de carpetas NFS de validaciones existentes; solo cambia el grupo y modo de esas carpetas y de `por_procesar/`, y deja `procesadas/` y sus archivos intactos.
+
 El asistente permite actualizar paquetes, elegir una release o un commit, configurar la aplicación y respaldar datos antes de actualizar. Los archivos se guardan en `/opt/valweb`, la configuración en `/etc/valweb/.env` y los datos en `/var/lib/valweb`. La beta necesita un proxy TLS externo para servir HTTPS. Conserva los respaldos: las migraciones de base de datos no se revierten automáticamente.
 
 ## Desarrollo
@@ -119,7 +121,7 @@ Límites iniciales:
 - ZIP:50GiB recibido y100GiB descomprimido por defecto, configurables con `MAX_ZIP_BYTES` y `MAX_EXPANDED_BYTES`. Se rechazan rutas inseguras, enlaces simbólicos, cifrado, demasiadas entradas y compresión desproporcionada. Nunca se extraen rutas del ZIP al disco.
 - Recepción:dos cargas simultáneas por proceso, diez por usuario/hora, límite de una hora y comprobación de espacio. Reserva disco para el original, imágenes normalizadas, staging y bases antiguas;50,000 imágenes de2MiB son aproximadamente98GiB solo de originales sin compresión.
 
-`IMPORT_STORAGE_DIR` usa `var/imports`; debe ser un volumen privado persistente compartido con el worker. `IMAGE_STORAGE_DIR` conserva la raíz histórica, mientras la ruta local predeterminada y las rutas LOCAL/NFS nuevas se persisten en la base. Web y worker deben ver los mismos montajes con permisos de lectura/escritura; en Linux/LXC, NFS debe estar montado por el host o el sistema operativo, no por la aplicación. El instalador no monta NFS ni cambia propietarios recursivamente dentro de destinos administrados. Para FTP, concede a la cuenta de carga acceso de escritura/listado en `por_procesar/` y lectura de los archivos depositados; configura el servidor FTP para crear archivos legibles por el worker. Si FTP escribe en el NAS, alinea allí el GID y permisos con el usuario `valweb` del LXC. Reserva espacio para originales, captura y WebP normalizadas.
+`IMPORT_STORAGE_DIR` usa `var/imports`; debe ser un volumen privado persistente compartido con el worker. `IMAGE_STORAGE_DIR` conserva la raíz histórica, mientras la ruta local predeterminada y las rutas LOCAL/NFS nuevas se persisten en la base. Web y worker deben ver los mismos montajes con permisos de lectura/escritura; en Linux/LXC, NFS debe estar montado por el host o el sistema operativo, no por la aplicación. El instalador no monta NFS ni cambia propietarios recursivamente dentro de destinos administrados. Para FTP, el grupo `valweb-images` debe tener el mismo GID en la NAS y en el LXC; concede al grupo acceso heredable en la raíz compartida y acceso de escritura/listado en `por_procesar/`. Configura el servidor FTP para crear archivos legibles por el worker. Reserva espacio para originales, captura y WebP normalizadas.
 
 ## Almacenamiento privado de imágenes
 
