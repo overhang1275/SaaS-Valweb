@@ -76,6 +76,16 @@ export async function createTenant(actor: Actor, input: { name: string }) {
     return tenant;
   });
 }
+export async function updateTenantName(actor: Actor, id: string, input: { name: string }) {
+  const tenantId = z.uuid().parse(id);
+  const name = nameSchema.parse(input.name);
+  return prisma.$transaction(async tx => {
+    const admin = await currentActor(tx, actor, true);
+    const tenant = await tx.tenant.update({ where: { id: tenantId }, data: { name } });
+    await audit(tx, 'TENANT_UPDATED', admin.id, tenant.id);
+    return tenant;
+  });
+}
 export async function setTenantStatus(actor: Actor, id: string, status: 'ACTIVE' | 'SUSPENDED') {
   z.enum(['ACTIVE', 'SUSPENDED']).parse(status);
   return prisma.$transaction(async tx => {

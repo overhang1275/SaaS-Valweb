@@ -23,6 +23,8 @@ El instalador configura Valweb dentro de un contenedor LXC existente; no crea co
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/overhang1275/SaaS-Valweb/refs/heads/main/ops/valweb-install.sh)"
 ```
 
+El instalador usa `/var/tmp` para descargar y preparar releases, y comprueba que haya al menos 64 MiB libres antes de continuar. Si esa ruta tiene poco espacio, indica otra carpeta local con espacio suficiente mediante `VALWEB_INSTALL_TMP_DIR=/ruta/local` al ejecutar el script. No uses una carpeta dentro del montaje NFS para los temporales de Git.
+
 El instalador crea el grupo local `valweb-images` con GID `1500` por defecto y agrega el servicio `valweb`. Consulta **Permisos de NAS para FTP** antes de recibir imágenes por FTP.
 
 El asistente permite actualizar paquetes, elegir una release o un commit, configurar la aplicación y respaldar datos antes de actualizar. Los archivos se guardan en `/opt/valweb`, la configuración en `/etc/valweb/.env` y los datos en `/var/lib/valweb`. La beta necesita un proxy TLS externo para servir HTTPS. Conserva los respaldos: las migraciones de base de datos no se revierten automáticamente.

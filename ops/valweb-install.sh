@@ -16,6 +16,7 @@ readonly IMAGE_GROUP=valweb-images
 IMAGE_GID=${VALWEB_IMAGE_GID:-1500}
 readonly PORT_DEFAULT=3000
 TMP=""
+TMP_BASE=${VALWEB_INSTALL_TMP_DIR:-/var/tmp}
 OLD_LINK=""
 SWITCHED=0
 SERVICES_STOPPED=0
@@ -42,6 +43,17 @@ getenv(){ sed -n "s/^$1=//p" "$CONFIG" | tail -n1 | sed -e 's/^"//' -e 's/"$//' 
 cleanup(){ [[ -z $TMP ]] || rm -rf -- "$TMP"; }
 trap cleanup EXIT
 userctl(){ local uid; uid=$(id -u valweb); runuser -u valweb -- env HOME="$VALWEB_HOME" XDG_CONFIG_HOME="$VALWEB_HOME/.config" XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" systemctl --user "$@"; }
+prepare_tmp(){
+  [[ $TMP_BASE == /* && ! -L $TMP_BASE ]] || die 'VALWEB_INSTALL_TMP_DIR debe ser una ruta absoluta que no sea enlace simbólico.'
+  mkdir -p -- "$TMP_BASE"
+  [[ -d $TMP_BASE && -w $TMP_BASE && ! -L $TMP_BASE ]] || die 'La ruta temporal del instalador no es un directorio escribible seguro.'
+  TMP=$(mktemp -d "$TMP_BASE/valweb-manager.XXXXXX")
+  chmod 700 "$TMP"
+  local available_kb
+  available_kb=$(df -Pk "$TMP" | awk 'NR == 2 { print $4 }')
+  [[ $available_kb =~ ^[0-9]+$ ]] || die 'No se pudo comprobar el espacio libre de la ruta temporal.'
+  (( available_kb >= 65536 )) || die "Hay menos de 64 MiB libres en $TMP_BASE. Libera espacio o elige otra ruta con VALWEB_INSTALL_TMP_DIR."
+}
 own_data_dirs(){
   [[ ! -L $DATA && ! -L $DATA/images && ! -L $DATA/imports ]] || die 'Los directorios persistentes de Valweb no pueden ser enlaces simbólicos.'
   [[ ! -d $DATA ]] || mountpoint -q "$DATA" || chown "valweb:$VALWEB_GROUP" "$DATA"
@@ -52,7 +64,23 @@ own_data_dirs(){
 run_as_valweb(){
   (cd "$RELEASE" && HOME="$VALWEB_HOME" node --input-type=commonjs -e 'const fs=require("node:fs"),{spawnSync}=require("node:child_process"); const [config,cwd,command,...args]=process.argv.slice(1); let values; try{values=require("dotenv").parse(fs.readFileSync(config,"utf8"))}catch{console.error("No se pudo leer la configuración de Valweb");process.exit(78)} const env={...process.env,...values,HOME:process.env.HOME,USER:"valweb",LOGNAME:"valweb"}; if(!env.DATABASE_URL?.trim()){console.error("DATABASE_URL está vacía en /etc/valweb/.env; corrígela antes de continuar");process.exit(78)} const result=spawnSync("runuser",["--preserve-environment","--user","valweb","--",command,...args],{cwd,env,stdio:"inherit"}); if(result.error){console.error("No se pudo iniciar el comando de Valweb");process.exit(1)} process.exit(result.status??1)' "$CONFIG" "$RELEASE" "$@")
 }
-on_error(){ local code=$?; trap - ERR; recover; if [[ -n $OLD_LINK ]]; then printf '\nERROR: Falló la línea %s (código %s). Se restauró el release anterior; el esquema de base de datos no se revierte automáticamente. Respaldo: %s\n' "$1" "$code" "$BACKUPS" >&2; else printf '\nERROR: Falló la línea %s (código %s). Se detuvieron los servicios de Valweb; conserva la base de datos y revisa el respaldo: %s\n' "$1" "$code" "$BACKUPS" >&2; fi; exit "$code"; }
+on_error(){
+  local code=$?
+  trap - ERR
+  recover
+  if [[ -n $OLD_LINK ]] && (( SWITCHED )); then
+    printf '\nERROR: Falló la línea %s (código %s). Se restauró el release anterior; el esquema de base de datos no se revierte automáticamente. Respaldo: %s\n' "$1" "$code" "$BACKUPS" >&2
+  elif [[ -n $OLD_LINK ]] && (( SERVICES_STOPPED )); then
+    printf '\nERROR: Falló la línea %s (código %s). Se conservó el release anterior y se reiniciaron sus servicios. Comprueba el respaldo en %s.\n' "$1" "$code" "$BACKUPS" >&2
+  elif [[ -n $OLD_LINK ]]; then
+    printf '\nERROR: Falló la línea %s (código %s). No se cambió el release ni se detuvieron los servicios. No se alcanzó la etapa del respaldo.\n' "$1" "$code" >&2
+  elif (( SERVICES_STOPPED || SWITCHED )); then
+    printf '\nERROR: Falló la línea %s (código %s). La instalación nueva quedó incompleta y sus servicios se detuvieron. Respaldo: %s\n' "$1" "$code" "$BACKUPS" >&2
+  else
+    printf '\nERROR: Falló la línea %s (código %s). No se detuvieron los servicios de Valweb ni se cambió el release actual. Revisa la causa y vuelve a intentarlo.\n' "$1" "$code" >&2
+  fi
+  exit "$code"
+}
 trap 'on_error "$LINENO"' ERR
 
 usage(){ cat <<'HELP'
@@ -92,6 +120,8 @@ if [[ -L /opt/valweb/current ]]; then APP=/opt/valweb; else APP=$(ask 'Directori
 [[ $APP =~ ^/(opt|srv)/[A-Za-z0-9_./-]+$ && $APP != */../* && $APP != */.. ]] || die 'Usa una ruta absoluta simple dentro de /opt o /srv.'
 RELEASES=$APP/releases
 
+prepare_tmp
+
 say "Sistema: ${PRETTY_NAME}. Instalación existente: $([[ -L $APP/current ]] && echo sí || echo no)."
 if yesno '¿Actualizar paquetes del sistema operativo?'; then
   export DEBIAN_FRONTEND=noninteractive
@@ -102,9 +132,6 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y ca-certificates curl git jq nginx openssl postgresql postgresql-client build-essential python3 xz-utils
 systemctl enable --now postgresql
-TMP=$(mktemp -d /tmp/valweb-manager.XXXXXX)
-chmod 700 "$TMP"
-
 # Node 24 LTS from the NodeSource Debian/Ubuntu repository; the app requires a current Node runtime.
 if ! command -v node >/dev/null || ! node -e 'process.exitCode = Number(process.versions.node.split(".")[0]) < 24 ? 1 : 0'; then
   curl -fsSL https://deb.nodesource.com/setup_24.x -o "$TMP/nodesource.sh"

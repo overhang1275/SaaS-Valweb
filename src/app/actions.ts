@@ -1,11 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { ZodError } from "zod";
+import { ZodError, z } from "zod";
 import { getActor } from "@/lib/auth";
 import type { ActionState } from "@/lib/action-state";
 import { limitRequest } from "@/features/identity/rate-limit";
-import { consumeAccessToken, createTenant, inviteConsultationUser, inviteUser, requestPasswordReset, revokeUserSessions, saveConsultationUserValidations, setTenantStatus, setUserStatus } from "@/features/identity/service";
+import { consumeAccessToken, createTenant, inviteConsultationUser, inviteUser, requestPasswordReset, revokeUserSessions, saveConsultationUserValidations, setTenantStatus, setUserStatus, updateTenantName } from "@/features/identity/service";
 
 const value = (form: FormData, key: string) => String(form.get(key) ?? "");
 const success = (message: string): ActionState => ({ status: "success", message });
@@ -31,6 +31,13 @@ async function adminMutation(work: (actor: NonNullable<Awaited<ReturnType<typeof
 
 export async function createTenantAction(_: ActionState, form: FormData) {
   return adminMutation(actor => createTenant(actor, { name: value(form, "name") }), "Cuenta creada. Ya puedes invitar a su equipo.");
+}
+
+export async function updateTenantNameAction(_: ActionState, form: FormData) {
+  const id = value(form, "id"), name = value(form, "name").trim();
+  if (!z.uuid().safeParse(id).success) return error("La cuenta seleccionada no es válida.");
+  if (!name || name.length > 120) return { ...error("Escribe un nombre de cuenta de hasta 120 caracteres."), fieldErrors: { name: "Escribe un nombre de cuenta de hasta 120 caracteres." } };
+  return adminMutation(actor => updateTenantName(actor, id, { name }), "Nombre de la cuenta actualizado.");
 }
 
 export async function tenantStatusAction(_: ActionState, form: FormData) {

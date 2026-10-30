@@ -132,9 +132,19 @@ td strong, .primary-cell { font-weight: 500; }
 .inline-form { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 240px; }
 .inline-form .feedback { padding: 8px; font-size: 12px; }
 .row-actions { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; }
+.clients-table { table-layout: fixed; }
+.clients-table th:nth-child(1), .clients-table td:nth-child(1) { width: 41%; overflow-wrap: anywhere; }
+.clients-table th:nth-child(2), .clients-table td:nth-child(2) { width: 13%; text-align: right; }
+.clients-table th:nth-child(3), .clients-table td:nth-child(3) { width: 16%; }
+.clients-table th:nth-child(4), .clients-table td:nth-child(4) { width: 30%; }
+.clients-table td { padding-top: 14px; padding-bottom: 14px; }
+.clients-table .row-actions { flex-wrap: nowrap; align-items: center; }
 .form-section { scroll-margin-top: 24px; display: grid; grid-template-columns: minmax(200px, 1fr) minmax(260px, 420px); gap: 40px; padding-top: 36px; margin-top: 40px; border-top: 1px solid var(--border); }
 .form-section > div > p { color: var(--muted); margin-top: 8px; max-width: 300px; line-height: 1.65; }
 .form-section .stack > .button { width: fit-content; }
+.tenant-name-form { display: grid; gap: 16px; width: 100%; min-width: 0; }
+.tenant-name-form > .field { width: 100%; min-width: 0; }
+.tenant-name-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .empty-state { padding: 48px 20px; text-align: center; border-bottom: 1px solid var(--border); }
 .empty-state svg { margin: 0 auto 12px; color: var(--muted); }
 .empty-state p { margin-top: 8px; color: var(--muted); }
@@ -259,6 +269,10 @@ input[type="file"]::file-selector-button { margin-right: 10px; padding: 6px 10px
   .validation-link-panel { padding: 16px; }
   .mobile-table-hint { display: block; margin-bottom: 12px; }
   .delete-section { flex-direction: column; }
+}
+@media (max-width: 977px) {
+  .clients-table-scroll .clients-table { min-width: 640px; }
+  .clients-table-hint { display: block; margin-bottom: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { transition: none !important; animation: none !important; } }
 
