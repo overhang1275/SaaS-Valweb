@@ -2,6 +2,11 @@
 
 SaaS multiusuario de validaciones web de **Computer Forms**. Incluye identidad, administración de cuentas y gestión de validaciones: crear, editar, eliminar, personalizar textos, reservar un enlace UUID, administrar imágenes privadas y activar/desactivar con requisitos comprobados. Incluye carga masiva CSV/ZIP en segundo plano y consulta pública por alfanumérico con campos configurables e imagen por registro.
 
+## Manuales de uso
+
+- [Guía comercial del enlace público](manuales/ventas-enlace-publico.md): cómo presentar la consulta y qué verá la persona destinataria.
+- [Guía del panel de administración](manuales/panel-administracion-admin.md): cuentas, usuarios, validaciones, cargas, publicación y estadísticas.
+
 ## Requisitos
 
 - Node.js 22.12 o posterior compatible con Prisma 7 y npm.
@@ -76,8 +81,8 @@ La integración actual usa usuario/contraseña SMTP. Microsoft anunció que a fi
 
 ## Permisos y revocación
 
-- `ADMIN`: cuentas de clientes, invitaciones, desactivación y cierre de sesiones.
-- `CLIENT`: resumen de su cuenta y lectura de sus compañeros.
+- `ADMIN`: cuentas y usuarios; creación, carga y publicación de validaciones; configuración de almacenamiento, resultados y estado.
+- `CLIENT`: consulta sus validaciones y estadísticas, y edita textos y descripción. No carga registros o imágenes ni cambia la publicación.
 - No hay registro público ni creación de administradores desde formularios.
 - Cada operación protegida consulta estado, rol y cuenta actuales. Modificar IDs o campos de formularios no permite cruzar cuentas.
 - Desactivar un usuario, suspender su cuenta o cambiar su contraseña revoca sus JWT anteriores. Reactivar el acceso exige iniciar sesión otra vez.
@@ -87,7 +92,7 @@ La integración actual usa usuario/contraseña SMTP. Microsoft anunció que a fi
 
 ## Gestión de validaciones
 
-En el panel, abre **Validaciones**. Cada cliente ve y administra únicamente las de su cuenta; el administrador ve todas y selecciona la cuenta propietaria al crear. La cuenta no se transfiere desde edición.
+En el panel, abre **Validaciones**. Cada cliente ve únicamente las validaciones de su cuenta; el administrador ve todas y selecciona la cuenta propietaria al crear. La cuenta no se transfiere desde edición. El administrador prepara y publica registros e imágenes; el cliente puede editar textos y descripción y consultar estadísticas.
 
 Puedes configurar nombre interno, título público, instrucciones y mensajes de éxito/error. Al crear se reserva un enlace `/v/<uuid-v4>` con UUID público aleatorio distinto del identificador administrativo. Editar conserva el enlace. Eliminar requiere confirmación, oculta el registro y conserva su token para que nunca se reutilice.
 
