@@ -636,6 +636,14 @@ summary:focus-visible { outline: 3px solid var(--accent); outline-offset: -4px; 
 }
 /* Public validation shares the authentication layout and its quiet, left-aligned form. */
 .public-shell { background: #fafcfe; }
+.public-pending { width: 100%; max-width: 460px; }
+.public-pending-icon { width: 52px; height: 52px; display: grid; place-items: center; margin-bottom: 27px; color: var(--brand-navy); background: #eaf1f6; border-radius: 50%; }
+.public-pending-label { margin: 0 0 10px; color: var(--accent-ink); font-size: 11px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
+.public-pending h1 { max-width: 400px; margin: 0; font-size: clamp(30px, 3vw, 38px); line-height: 1.16; letter-spacing: -1.3px; }
+.public-pending-copy { margin: 18px 0 0; color: var(--muted); font-size: 15px; line-height: 1.75; }
+.public-pending-help { margin: 26px 0 0; padding-top: 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; line-height: 1.7; }
+.public-pending-link { width: fit-content; margin-top: 24px; }
+.public-pending-link svg { flex: 0 0 auto; }
 .public-auth-content { width: 100%; max-width: 380px; min-width: 0; }
 .public-validation { width: 100%; max-width: none; padding: 0; margin: 0; overflow: visible; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
 .public-page-heading { padding: 0; margin: 0; color: var(--text); background: transparent; border: 0; }

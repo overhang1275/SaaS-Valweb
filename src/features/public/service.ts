@@ -11,6 +11,14 @@ export async function getPublicValidation(token: string) {
   if (!z.uuid().safeParse(token).success) return null;
   return prisma.validation.findFirst({ where: { ...available, publicToken: token }, select: { id: true, title: true, instructions: true, requireClientAccess: true } });
 }
+export async function isPublicValidationPending(token: string) {
+  if (!z.uuid().safeParse(token).success) return false;
+  const validation = await prisma.validation.findFirst({
+    where: { publicToken: token, deletedAt: null, tenant: { status: "ACTIVE" } },
+    select: { status: true, activeDataset: { select: { status: true } } },
+  });
+  return Boolean(validation && validation.status !== "DELETED" && (validation.status !== "ACTIVE" || validation.activeDataset?.status !== "PUBLISHED"));
+}
 export async function verifyAlfanum(token: string, input: string, viewer: string) {
   const alfanumNormalized = normalizeAlfanum(input);
   if (!z.uuid().safeParse(token).success) return null;
