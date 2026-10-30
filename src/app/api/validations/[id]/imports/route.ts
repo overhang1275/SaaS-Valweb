@@ -26,6 +26,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     if (request.headers.get("origin") !== new URL(process.env.NEXTAUTH_URL!).origin) return Response.json({ message: "Origen no permitido." }, { status: 403 });
     const actor = await getActor(); if (!actor) return Response.json({ message: "Inicia sesión." }, { status: 401 });
+    if (actor.role !== "ADMIN") return Response.json({ message: "Solo un administrador puede cargar registros o imágenes." }, { status: 403 });
     const { id } = await params;
     if (!await getValidation(actor, id)) return Response.json({ message: "Validación no disponible." }, { status: 404 });
     if (!await limitRequest("import-upload", actor.id, 10, 3600) || uploads >= 2) return Response.json({ message: "Hay demasiadas cargas. Reintenta en unos minutos." }, { status: 429 });

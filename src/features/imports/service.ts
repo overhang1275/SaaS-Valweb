@@ -16,7 +16,7 @@ export function jobDto(job: ImportJob) {
 export async function startDirectoryImport(actor: Actor, validationId: string) {
   z.uuid().parse(validationId);
   const job = await prisma.$transaction(async tx => {
-    const user = await currentActor(tx, actor);
+    const user = await currentActor(tx, actor, true);
     const validation = await lockValidation(tx, user, validationId);
     if (validation.imageMode !== "PER_RECORD" || !validation.imageStorageKind) throw new Error("Selecciona almacenamiento por registro antes de procesar la carpeta.");
     await lockImageLocation(tx, validation.imageStorageKind);
@@ -50,7 +50,7 @@ export async function getImport(actor: Actor, id: string) {
 export async function configureImport(actor: Actor, id: string, input: unknown) {
   const config = z.object({ mapping: mappingSchema, mode: z.enum(["REPLACE", "UPSERT"]) }).parse(input);
   await prisma.$transaction(async tx => {
-    const user = await currentActor(tx, actor);
+    const user = await currentActor(tx, actor, true);
     const owner = await tx.importJob.findUniqueOrThrow({ where: { id }, select: { validationId: true } });
     await lockValidation(tx, user, owner.validationId);
     const job = await tx.importJob.findUniqueOrThrow({ where: { id } });
@@ -63,7 +63,7 @@ export async function configureImport(actor: Actor, id: string, input: unknown) 
 }
 export async function retryImport(actor: Actor, id: string, replaceImages = false) {
   await prisma.$transaction(async tx => {
-    const user = await currentActor(tx, actor);
+    const user = await currentActor(tx, actor, true);
     const owner = await tx.importJob.findUniqueOrThrow({ where: { id }, select: { validationId: true } });
     await lockValidation(tx, user, owner.validationId);
     const job = await tx.importJob.findUniqueOrThrow({ where: { id } });
@@ -75,7 +75,7 @@ export async function retryImport(actor: Actor, id: string, replaceImages = fals
 }
 export async function publishCsv(actor: Actor, id: string) {
   return prisma.$transaction(async tx => {
-    const user = await currentActor(tx, actor);
+    const user = await currentActor(tx, actor, true);
     const owner = await tx.importJob.findUniqueOrThrow({ where: { id }, select: { validationId: true } });
     const validation = await lockValidation(tx, user, owner.validationId);
     const job = await tx.importJob.findUniqueOrThrow({ where: { id } });
@@ -103,7 +103,7 @@ export async function listImportReplacements(actor: Actor, validationId: string,
 
 export async function publishDirectoryImport(actor: Actor, id: string) {
   const result = await prisma.$transaction(async tx => {
-    const user = await currentActor(tx, actor);
+    const user = await currentActor(tx, actor, true);
     const job = await tx.importJob.findUniqueOrThrow({ where: { id } });
     const validation = await lockValidation(tx, user, job.validationId);
     if (job.kind !== "IMAGES" || !job.sourceKey.endsWith(".directory") || job.status !== "REVIEW") throw new Error("No hay una revisión de carpeta disponible.");
@@ -127,7 +127,12 @@ export async function publishDirectoryImport(actor: Actor, id: string) {
 }
 
 export async function cleanupDirectoryImport(actor: Actor, id: string) {
-  const job = await getImport(actor, id);
+  const job = await prisma.$transaction(async tx => {
+    const user = await currentActor(tx, actor, true);
+    const job = await tx.importJob.findUniqueOrThrow({ where: { id } });
+    await lockValidation(tx, user, job.validationId);
+    return job;
+  });
   if (job.status !== "COMPLETED" || !job.sourceKey.endsWith(".directory")) throw new Error("No hay una limpieza pendiente.");
   const pending = await cleanupPublishedDirectoryOriginals(job);
   await prisma.importJob.update({ where: { id }, data: { phase: pending ? `${pending} originales siguen pendientes de limpieza` : "Imágenes publicadas; originales procesados" } });
@@ -135,7 +140,7 @@ export async function cleanupDirectoryImport(actor: Actor, id: string) {
 
 export async function cancelImport(actor: Actor, id: string) {
   return prisma.$transaction(async tx => {
-    const user = await currentActor(tx, actor); const job = await tx.importJob.findUniqueOrThrow({ where: { id } });
+    const user = await currentActor(tx, actor, true); const job = await tx.importJob.findUniqueOrThrow({ where: { id } });
     await lockValidation(tx, user, job.validationId);
     await tx.importJob.updateMany({ where: { id, status: { in: ["QUEUED", "PROCESSING", "REVIEW", "FAILED"] } }, data: { status: "CANCELLED", phase: "Cancelada: base anterior conservada" } });
   });

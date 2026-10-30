@@ -24,12 +24,20 @@ export const metadata = { title: "Editar validación" };
 export default async function EditValidationPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ creada?: string; tab?: string }> }) {
   const actor = await requireActor(); const [{ id }, query] = await Promise.all([params, searchParams]);
   if (!z.uuid().safeParse(id).success) notFound();
-  const [validation, readiness, statistics] = await Promise.all([getValidation(actor, id), getValidationReadiness(actor, id), getValidationStatistics(actor, id)]);
-  if (!validation || !readiness || !statistics) notFound();
-  const [recordImports, imageImports, storage] = await Promise.all([listImports(actor, id, "CSV"), listImports(actor, id, "IMAGES"), getValidationImageStorage(actor, id)]);
+  const [validation, statistics] = await Promise.all([getValidation(actor, id), getValidationStatistics(actor, id)]);
+  if (!validation || !statistics) notFound();
   const { name, title, instructions, successMessage, errorMessage, imageAlt } = validation;
   const labels = { DRAFT: "Borrador", ACTIVE: "Activa", INACTIVE: "Inactiva", DELETED: "Eliminada" };
   const editUrl = `/validaciones/${id}/editar`;
+  if (actor.role === "CLIENT") return <>
+    <nav className="breadcrumbs" aria-label="Ubicación"><Link href="/validaciones">Validaciones</Link><ChevronRight size={14} aria-hidden="true" /><span aria-current="page">Vista de validación</span></nav>
+    <div className="page-heading editor-heading"><div><div className="heading-title"><h1>{name}</h1><span className={`status ${validation.status === "ACTIVE" ? "active" : "inactive"}`}>{labels[validation.status]}</span></div><p>{validation.tenant.name} · Vista de resultados y estadísticas</p></div>{validation.status === "ACTIVE" && <Link className="button button-secondary" href={`/v/${validation.publicToken}`} target="_blank" rel="noopener noreferrer">Ver página pública<ExternalLink size={16} aria-hidden="true" /></Link>}</div>
+    <section id="estadisticas" className="validation-statistics surface" aria-labelledby="statistics-title"><div className="section-line"><h2 id="statistics-title">Estadísticas</h2><RefreshStatistics /></div><dl className="statistics-grid">{([['Registros publicados', statistics.records], ['Consultas', statistics.queries], ['Encontrados', statistics.found], ['No encontrados', statistics.notFound]] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value.toLocaleString("es-MX")}</dd></div>)}</dl></section>
+    <section className="surface editor-texts" aria-labelledby="validation-texts-title"><h2 id="validation-texts-title">Textos y descripción</h2><p className="section-description">Actualiza el nombre, las instrucciones y los mensajes que verá quien consulte. Los registros e imágenes los administra el equipo de Valweb.</p><ValidationForm key={id} action={updateValidationAction} id={id} initial={{ name, title, instructions, successMessage, errorMessage, imageAlt }} /></section>
+  </>;
+  const readiness = await getValidationReadiness(actor, id);
+  if (!readiness) notFound();
+  const [recordImports, imageImports, storage] = await Promise.all([listImports(actor, id, "CSV"), listImports(actor, id, "IMAGES"), getValidationImageStorage(actor, id)]);
   const publicSettings = { imageMode: validation.imageMode, showFolio: validation.showFolio, showAlfanum: validation.showAlfanum, showTipo: validation.showTipo, showOtro: validation.showOtro, showImage: validation.showImage, requireClientAccess: validation.requireClientAccess };
   const fields = [[validation.showFolio, "Folio"], [validation.showAlfanum, "Alfanumérico"], [validation.showTipo, "Tipo de documento"], [validation.showOtro, "Otros"], [validation.showImage, "Imagen"]].filter(([show]) => show).map(([, label]) => label as string);
   const checks = [

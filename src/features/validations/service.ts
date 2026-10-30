@@ -56,7 +56,7 @@ export async function createValidation(actor: Actor, input: Texts & { tenantId?:
   const data = texts.parse(input);
   if (input.tenantId !== undefined) idSchema.parse(input.tenantId);
   return prisma.$transaction(async tx => {
-    const user = await currentActor(tx, actor);
+    const user = await currentActor(tx, actor, true);
     if (user.role === 'CLIENT' && input.tenantId !== undefined && input.tenantId !== user.tenantId) throw unavailable();
     const tenantId = user.role === 'ADMIN' ? input.tenantId : user.tenantId;
     if (!tenantId) throw new Error('Selecciona una cuenta activa.');
@@ -73,6 +73,7 @@ export async function updateValidation(actor: Actor, id: string, input: Texts) {
   const data = texts.parse(input);
   return prisma.$transaction(async tx => {
     const user = await currentActor(tx, actor);
+    if (user.role !== 'ADMIN' && data.imageMode !== undefined) throw new Error('Solo un administrador puede cambiar la configuración de imágenes.');
     await lockValidation(tx, user, id);
     const row = await tx.validation.update({ where: { id }, data, include });
     await tx.auditLog.create({ data: { actorId: user.id, tenantId: row.tenantId, action: 'VALIDATION_UPDATED', targetId: id } });
@@ -82,7 +83,7 @@ export async function updateValidation(actor: Actor, id: string, input: Texts) {
 export async function deleteValidation(actor: Actor, id: string): Promise<void> {
   idSchema.parse(id);
   const keys = await prisma.$transaction(async tx => {
-    const user = await currentActor(tx, actor);
+    const user = await currentActor(tx, actor, true);
     const row = await lockValidation(tx, user, id);
     const images = await tx.recordImage.findMany({ where: { validationId: id }, select: { storageKey: true } });
     await tx.recordImage.deleteMany({ where: { validationId: id } });
@@ -130,7 +131,7 @@ export async function setValidationStatus(actor: Actor, id: string, status: 'ACT
   idSchema.parse(id);
   z.enum(['ACTIVE', 'INACTIVE']).parse(status);
   return prisma.$transaction(async tx => {
-    const user = await currentActor(tx, actor);
+    const user = await currentActor(tx, actor, true);
     const row = await lockValidation(tx, user, id);
     if (status === 'ACTIVE' && !(await readiness(tx, row)).canActivate) throw new Error('Para activar necesitas una cuenta activa, una imagen y folios publicados.');
     const updated = await tx.validation.update({ where: { id }, data: { status }, include });

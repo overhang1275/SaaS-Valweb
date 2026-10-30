@@ -13,7 +13,7 @@ import { HelpPopover } from "@/components/ui/help-popover";
 
 export const metadata = { title: "Imágenes por alfanumérico" };
 export default async function ImagesPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const actor = await requireActor(); const { id } = await params;
+  const actor = await requireActor(true); const { id } = await params;
   if (!z.uuid().safeParse(id).success) notFound();
   const validation = await getValidation(actor, id); if (!validation) notFound();
   const raw = await searchParams;

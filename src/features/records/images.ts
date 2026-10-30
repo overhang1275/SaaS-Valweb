@@ -85,7 +85,7 @@ export async function getRecordImage(actor: Actor, validationId: string, id: str
 }
 export async function deleteRecordImage(actor: Actor, validationId: string, id: string, confirmed: boolean) {
   const key = await prisma.$transaction(async tx => {
-    const user = await currentActor(tx, actor);
+    const user = await currentActor(tx, actor, true);
     const validation = await lockValidation(tx, user, validationId);
     if (await tx.importJob.findFirst({ where: { validationId, status: "REVIEW", sourceKey: { endsWith: ".directory" } } })) throw new ImageError(409, "Confirma o cancela la revisión de imágenes antes de cambiar el catálogo.");
     const image = await tx.recordImage.findFirst({ where: { id, validationId } });
@@ -101,6 +101,7 @@ export async function deleteRecordImage(actor: Actor, validationId: string, id: 
 }
 
 export async function replaceRecordImage(actor: Actor, validationId: string, id: string, input: Buffer, filename: string, mime: string, version: string) {
+  if (actor.role !== "ADMIN") throw new ImageError(403, "Solo un administrador puede cargar imágenes.");
   const expected = z.iso.datetime({ offset: true }).safeParse(version);
   if (!expected.success) throw new ImageError(400, "La versión de la imagen no es válida. Recarga el catálogo.");
   const owner = await getValidation(actor, validationId);
@@ -113,7 +114,7 @@ export async function replaceRecordImage(actor: Actor, validationId: string, id:
   let previous: string;
   try {
     previous = await prisma.$transaction(async tx => {
-      const user = await currentActor(tx, actor);
+      const user = await currentActor(tx, actor, true);
       const validation = await lockValidation(tx, user, validationId);
       if (await tx.importJob.findFirst({ where: { validationId, status: "REVIEW", sourceKey: { endsWith: ".directory" } } })) throw new ImageError(409, "Confirma o cancela la revisión de imágenes antes de cambiar el catálogo.");
       if (validation.imageStorageKind !== owner.imageStorageKind) throw new ImageError(409, "El destino de imágenes cambió. Vuelve a cargar la imagen.");

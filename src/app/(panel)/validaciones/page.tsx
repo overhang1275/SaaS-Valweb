@@ -16,7 +16,7 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
   const filter = ["ACTIVE", "INACTIVE", "DRAFT"].includes(params.estado || "") ? params.estado : "";
   const validations = allValidations.filter(row => (!query || `${row.name} ${row.title}`.toLowerCase().includes(query.toLowerCase())) && (!filter || row.status === filter));
   return <>
-    <div className="page-heading"><div><h1>Validaciones</h1><p>Tus documentos, registros e imágenes, organizados en un solo lugar.</p></div><Link className="button" href="/validaciones/nueva"><Plus size={17} aria-hidden="true" />Nueva validación</Link></div>
+    <div className="page-heading"><div><h1>Validaciones</h1><p>{actor.role === "ADMIN" ? "Tus documentos, registros e imágenes, organizados en un solo lugar." : "Consulta el estado, los resultados y las estadísticas de tu cuenta."}</p></div>{actor.role === "ADMIN" && <Link className="button" href="/validaciones/nueva"><Plus size={17} aria-hidden="true" />Nueva validación</Link>}</div>
     {params.eliminada === "1" && <p role="status" className="feedback success page-feedback">Validación eliminada.</p>}
     <SearchFilters key={`${query}:${filter}`} action="/validaciones" active={Boolean(query || filter)} clearHref="/validaciones" help={<p className="help" id="validation-search-help">Busca por nombre o título y combina la búsqueda con el estado de la validación.</p>}>
       <SearchFilterInput id="validation-search" label="Buscar validaciones" name="q" value={query} maxLength={120} placeholder="Buscar por nombre o título…" describedBy="validation-search-help" />
@@ -32,9 +32,9 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
         {actor.role === "ADMIN" && <td>{validation.tenant.name}</td>}
         <td><span className={`status ${validation.status === "ACTIVE" ? "active" : "inactive"}`}>{statusLabels[validation.status]}</span></td>
         <td><ValidationLink url={publicValidationUrl(validation.publicToken)} name={validation.name} /></td>
-        <td><Link className="button button-secondary" href={`/validaciones/${validation.id}/editar`} aria-label={`Editar ${validation.name}`}>Editar</Link></td>
+        <td><Link className="button button-secondary" href={`/validaciones/${validation.id}/editar`} aria-label={`${actor.role === "ADMIN" ? "Editar" : "Ver"} ${validation.name}`}>{actor.role === "ADMIN" ? "Editar" : "Ver ficha"}</Link></td>
       </tr>)}</tbody>
-    </table></div> : <div className="empty-state"><ClipboardCheck size={28} aria-hidden="true" /><h3>{allValidations.length ? "No encontramos coincidencias" : "Aún no hay validaciones"}</h3><p>{allValidations.length ? "Prueba con otro nombre o cambia los filtros." : "Crea una validación para personalizar sus textos y reservar su enlace."}</p><Link className="button button-secondary" href={allValidations.length ? "/validaciones" : "/validaciones/nueva"}>{allValidations.length ? "Ver todas las validaciones" : "Crear primera validación"}</Link></div>}
+    </table></div> : <div className="empty-state"><ClipboardCheck size={28} aria-hidden="true" /><h3>{allValidations.length ? "No encontramos coincidencias" : "Aún no hay validaciones"}</h3><p>{allValidations.length ? "Prueba con otro nombre o cambia los filtros." : actor.role === "ADMIN" ? "Crea una validación para personalizar sus textos y reservar su enlace." : "Cuando el equipo de Valweb asigne una validación, aparecerá aquí."}</p>{actor.role === "ADMIN" && <Link className="button button-secondary" href={allValidations.length ? "/validaciones" : "/validaciones/nueva"}>{allValidations.length ? "Ver todas las validaciones" : "Crear primera validación"}</Link>}</div>}
     <p className="help draft-note">El público consulta por alfanumérico. Activa cuando la base y las imágenes asociadas estén listas.</p>
   </>;
 }

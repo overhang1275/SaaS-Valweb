@@ -12,6 +12,7 @@ async function retireImage(key: string | null) {
 }
 
 export async function replaceValidationImage(actor: Actor, id: string, input: Buffer, filename: string, mime: string) {
+  if (actor.role !== "ADMIN") throw new ImageError(403, "Solo un administrador puede cargar imágenes.");
   const validation = await getValidation(actor, id);
   if (!validation) throw new ImageError(404, "La validación no está disponible.");
   const image = await prepareImage(input, filename, mime);
@@ -38,6 +39,7 @@ export async function replaceValidationImage(actor: Actor, id: string, input: Bu
 }
 
 export async function deleteValidationImage(actor: Actor, id: string, confirmDeactivate: boolean) {
+  if (actor.role !== "ADMIN") throw new ImageError(403, "Solo un administrador puede eliminar imágenes.");
   const previous = await prisma.$transaction(async tx => {
     const user = await currentActor(tx, actor);
     const row = await lockValidation(tx, user, id);

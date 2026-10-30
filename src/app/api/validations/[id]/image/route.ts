@@ -25,6 +25,7 @@ async function mutation(request: Request, context: Context) {
   const configured = process.env.NEXTAUTH_URL;
   if (!configured || request.headers.get("origin") !== new URL(configured).origin) throw new ImageError(403, "La solicitud no está permitida desde este origen.");
   const result = await authorized(context);
+  if (result.actor.role !== "ADMIN") throw new ImageError(403, "Solo un administrador puede cargar o eliminar imágenes.");
   if (!await limitRequest("images", result.actor.id, 10, 60)) throw new ImageError(429, "Demasiadas operaciones de imagen. Espera un minuto.");
   return result;
 }

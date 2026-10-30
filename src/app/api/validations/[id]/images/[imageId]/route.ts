@@ -33,6 +33,7 @@ async function mutation(request: Request, context: Context) {
   const actor = await getActor();
   if (!actor) throw new ImageError(401, "Inicia sesión para gestionar las imágenes.");
   const { id, imageId } = await context.params;
+  if (actor.role !== "ADMIN") throw new ImageError(403, "Solo un administrador puede cargar o eliminar imágenes.");
   if (!await getRecordImage(actor, id, imageId)) throw new ImageError(404, "La imagen no está disponible.");
   if (!await limitRequest("images", actor.id, 10, 60)) throw new ImageError(429, "Demasiadas operaciones de imagen. Espera un minuto.");
   return { actor, id, imageId };

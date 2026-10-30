@@ -14,7 +14,7 @@ export const metadata = { title: "Usuarios" };
 const statusLabel = { ACTIVE: "Activo", INVITED: "Invitado", DISABLED: "Desactivado" };
 
 export default async function UsersPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const actor = await requireActor(), admin = actor.role === "ADMIN";
+  const actor = await requireActor(true), admin = actor.role === "ADMIN";
   const raw = await searchParams;
   const parsed = userListQuerySchema.safeParse(raw);
   const query = parsed.success ? parsed.data : userListQuerySchema.parse({});

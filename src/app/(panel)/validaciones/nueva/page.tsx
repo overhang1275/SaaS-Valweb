@@ -7,7 +7,7 @@ import { ValidationForm } from "@/components/validation-form";
 export const metadata = { title: "Nueva validación" };
 
 export default async function NewValidationPage() {
-  const actor = await requireActor();
+  const actor = await requireActor(true);
   const tenants = actor.role === "ADMIN" ? (await listTenants(actor)).filter(tenant => tenant.status === "ACTIVE").map(({ id, name }) => ({ id, name })) : undefined;
   return <>
     <Link href="/validaciones" className="back-link">Volver a validaciones</Link>
