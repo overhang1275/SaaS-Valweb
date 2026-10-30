@@ -1,5 +1,53 @@
 @import "tailwindcss";
 
+/* Keep training content in the panel's existing typography and surfaces. */
+.howto-page { max-width: 1240px; }
+.howto-section-heading { max-width: 720px; margin-bottom: 24px; }
+.howto-section-heading p { margin-top: 8px; color: var(--muted); line-height: 1.7; }
+.howto-demo { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
+.howto-demo-heading { padding: 22px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.howto-demo-heading p { color: var(--muted); margin-top: 6px; }
+.howto-demo-layout { display: grid; grid-template-columns: minmax(0, 1fr) 310px; }
+.howto-demo-visual { min-width: 0; display: flex; flex-direction: column; }
+.howto-art { padding: 10px 12px 0; }
+.howto-art .iso-svg { max-height: 340px; }
+.howto-demo-status { padding: 0 24px 24px; min-height: 158px; }
+.howto-demo-status h3 { margin: 6px 0 8px; }
+.howto-demo-status p { color: var(--muted); line-height: 1.7; }
+.howto-published { margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding: 16px 24px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.howto-published strong { color: var(--text); font-weight: 600; }
+.howto-demo-controls { border-left: 1px solid var(--border); padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+.howto-sample { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px; }
+.howto-sample caption { text-align: left; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.howto-sample th, .howto-sample td { padding: 9px 0; text-align: left; border-bottom: 1px solid var(--border); }
+.howto-sample th { font-weight: 500; color: var(--muted); }
+.howto-sample td { font-family: ui-monospace, monospace; }
+.howto-demo-actions { display: grid; gap: 10px; }
+.howto-demo-actions .button { white-space: normal; }
+.howto-demo button:disabled { cursor: not-allowed; }
+.howto-reading { max-width: 860px; }
+.howto-demo + .howto-reading { margin-top: 32px; }
+.howto-steps { list-style: decimal; padding-left: 22px; margin: 18px 0 24px; }
+.howto-steps li { padding-left: 6px; margin-bottom: 16px; line-height: 1.8; color: var(--muted); }
+.howto-steps strong { color: var(--text); font-weight: 600; }
+.howto-note { border-left: 3px solid var(--control); padding: 12px 18px; margin: 22px 0; background: var(--surface); color: var(--muted); line-height: 1.7; }
+@media (max-width: 1100px) {
+  .howto-demo-layout { grid-template-columns: 1fr; }
+  .howto-demo-controls { padding: 20px; border-left: 0; border-top: 1px solid var(--border); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .howto-demo-controls > .field:first-child, .howto-sample, .howto-demo-actions, .howto-demo-controls > .help { grid-column: 1 / -1; }
+  .howto-demo-actions { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+  .howto-demo-layout { grid-template-columns: 1fr; }
+  .howto-demo-heading, .howto-demo-controls, .howto-demo-status { padding: 20px; }
+  .howto-demo-status { min-height: 0; }
+  .howto-demo-controls { display: flex; }
+  .howto-demo-actions { grid-template-columns: 1fr 1fr; }
+  .howto-published { padding: 16px 20px; }
+  .howto-page .settings-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
+  .howto-page .settings-nav a { padding: 10px 6px; justify-content: center; text-align: center; font-size: 13px; }
+}
+
 :root {
   --brand-navy: #002a45;
   --brand-red: #e5213c;
@@ -64,8 +112,8 @@ input::placeholder { color: #6b7280; }
 .system-health, .system-imports { margin-top: 28px; }
 .settings-nav { display: flex; gap: 8px; overflow-x: auto; margin: 20px 0 28px; border-bottom: 1px solid var(--border); scrollbar-width: thin; }
 .settings-nav a { flex: 0 0 auto; padding: 12px 16px; color: var(--muted); text-decoration: none; font-weight: 600; border-bottom: 2px solid transparent; }
-.settings-nav a[aria-current="page"] { color: var(--navy); border-color: var(--red); }
-.settings-nav a:focus-visible { outline: 2px solid var(--navy); outline-offset: -2px; }
+.settings-nav a[aria-current="page"] { color: var(--brand-navy); border-color: var(--brand-red); }
+.settings-nav a:focus-visible { outline: 2px solid var(--brand-navy); outline-offset: -2px; }
 @media (max-width: 767px) { .settings-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; gap: 0 8px; } .settings-nav a { min-height: 44px; display: flex; align-items: center; white-space: normal; } }
 .system-settings .button, .system-settings .button:not(.button-secondary):hover { box-shadow: none; }
 .system-services { margin: 20px 0 0; }

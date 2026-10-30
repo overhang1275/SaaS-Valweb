@@ -1,11 +1,11 @@
 # Dependencies and generated build files
-node_modules/
+node_modules
 /.next/
 /.next-test/
 /out/
 /dist/
 /build/
-/src/generated/
+/src/generated
 /next-env.d.ts
 *.tsbuildinfo
 
@@ -47,6 +47,7 @@ node_modules/
 !/docs/superpowers/specs/2026-10-30-editar-nombre-cliente-design.md
 !/docs/superpowers/plans/
 /docs/superpowers/plans/*
+!/docs/superpowers/plans/2026-10-30-como-usar.md
 !/docs/superpowers/plans/2026-10-30-editar-nombre-cliente.md
 /design-resources/
 *.log
