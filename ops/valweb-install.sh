@@ -64,6 +64,68 @@ own_data_dirs(){
 run_as_valweb(){
   (cd "$RELEASE" && HOME="$VALWEB_HOME" node --input-type=commonjs -e 'const fs=require("node:fs"),{spawnSync}=require("node:child_process"); const [config,cwd,command,...args]=process.argv.slice(1); let values; try{values=require("dotenv").parse(fs.readFileSync(config,"utf8"))}catch{console.error("No se pudo leer la configuración de Valweb");process.exit(78)} const env={...process.env,...values,HOME:process.env.HOME,USER:"valweb",LOGNAME:"valweb"}; if(!env.DATABASE_URL?.trim()){console.error("DATABASE_URL está vacía en /etc/valweb/.env; corrígela antes de continuar");process.exit(78)} const result=spawnSync("runuser",["--preserve-environment","--user","valweb","--",command,...args],{cwd,env,stdio:"inherit"}); if(result.error){console.error("No se pudo iniciar el comando de Valweb");process.exit(1)} process.exit(result.status??1)' "$CONFIG" "$RELEASE" "$@")
 }
+release_storage_paths(){
+  run_as_valweb node --input-type=commonjs - <<'JS'
+const { Pool } = require('pg');
+const { resolve } = require('node:path');
+(async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    const check = await pool.query('SELECT to_regclass($1) IS NOT NULL AS present', ['public."ImageStorageLocation"']);
+    const locations = check.rows[0].present ? (await pool.query('SELECT "rootPath" FROM "ImageStorageLocation"')).rows : [];
+    const paths = [process.env.IMAGE_STORAGE_DIR || 'var/assets', process.env.IMPORT_STORAGE_DIR || 'var/imports', ...locations.map(row => row.rootPath)];
+    console.log(JSON.stringify(paths.map(path => resolve(path))));
+  } finally { await pool.end(); }
+})().catch(() => {
+  console.error('No se pudieron verificar todas las rutas de almacenamiento; no se limpiarán releases.');
+  process.exitCode = 1;
+});
+JS
+}
+prune_releases(){
+  python3 - "$RELEASES" "$APP/current" "$@" <<'PY'
+import glob, os, re, shutil, sys
+from pathlib import Path
+
+root, link = map(Path, sys.argv[1:3])
+candidate = sys.argv[3]
+if not re.fullmatch(r'[a-f0-9]{40}', candidate):
+    raise SystemExit('El commit candidato no es válido para limpiar releases.')
+if root.is_symlink() or root.resolve(strict=True) != root:
+    raise SystemExit('La ruta de releases no puede contener enlaces simbólicos.')
+current = None
+if os.path.lexists(link):
+    try:
+        current = link.resolve(strict=True)
+    except OSError:
+        raise SystemExit('No se pudo resolver la versión actual; no se limpiaron releases.')
+    if not link.is_symlink() or current.parent != root or not current.is_dir():
+        raise SystemExit('La versión actual no apunta a un directorio de releases administrado.')
+storage = [path for value in sys.argv[4:] if value for path in (Path(value).absolute(), Path(value).resolve())]
+
+obsolete = [path for path in root.iterdir()
+            if re.fullmatch(r'[a-f0-9]{40}', path.name) and path.is_dir()
+            and not path.is_symlink() and path != current and path.name != candidate]
+# Validate every deletion before removing anything; old releases may contain legacy uploads.
+mounts = [Path(line.split()[4]) for line in Path('/proc/self/mountinfo').read_text().splitlines()]
+for path in obsolete:
+    if (any(os.path.lexists(path / name) for name in ('var', 'uploads', 'storage', 'backups', 'dumps'))
+            or any(path == data or path in data.parents or data in path.parents for data in storage)):
+        raise SystemExit(f'El release {path.name} contiene datos persistentes; trasládalos antes de continuar.')
+    if any(mount == path or path in mount.parents for mount in mounts):
+        raise SystemExit(f'El release {path.name} contiene un montaje; no se eliminará.')
+for entry in glob.glob('/proc/[0-9]*/cwd'):
+    try:
+        cwd = Path(os.readlink(entry))
+    except (FileNotFoundError, PermissionError, ProcessLookupError):
+        continue
+    if any(cwd == path or path in cwd.parents for path in obsolete):
+        raise SystemExit('Un proceso usa un release antiguo; detenlo antes de continuar.')
+for path in obsolete:
+    shutil.rmtree(path)
+    print(f'Release antiguo retirado: {path.name}', flush=True)
+PY
+}
 on_error(){
   local code=$?
   trap - ERR
@@ -150,10 +212,11 @@ elif getent group "$IMAGE_GID" >/dev/null; then
 else
   groupadd --gid "$IMAGE_GID" "$IMAGE_GROUP"
 fi
-usermod --append --groups "$IMAGE_GROUP" valweb
+# NFS must receive the image group as primary; supplementary membership can reject fchown.
+usermod --append --groups valweb --gid "$IMAGE_GROUP" valweb
 VALWEB_HOME=$(getent passwd valweb | cut -d: -f6)
 [[ -n $VALWEB_HOME && -d $VALWEB_HOME ]] || die 'No existe el directorio personal de la cuenta valweb.'
-VALWEB_GROUP=$(id -gn valweb)
+VALWEB_GROUP=valweb
 chown root:"$VALWEB_GROUP" /etc/valweb
 chmod 750 /etc/valweb
 chown -R "valweb:$VALWEB_GROUP" "$APP"
@@ -203,6 +266,10 @@ if [[ $MODE != keep ]]; then
   git -C "$TMP/source" log -1 --format='Fecha: %cI%nDescripción: %s' "$TARGET"
   if [[ $INSTALLED != ninguno ]] && runuser -u valweb -- git -C "$APP/current" cat-file -e "$INSTALLED^{commit}" 2>/dev/null; then runuser -u valweb -- git -C "$APP/current" log --oneline "$INSTALLED..$TARGET" | head -20; fi
   yesno '¿Continuar con esta versión?' || exit 0
+  if [[ $TARGET == "$INSTALLED" ]]; then
+    MODE=keep
+    say 'La versión seleccionada ya está instalada; se conserva sin reconstruirla.'
+  fi
 fi
 
 REPAIR_NFS_PERMISSIONS=0
@@ -242,9 +309,12 @@ if [[ $INSTALLED != ninguno ]]; then
   mapfile -t PERSISTED_IMAGE_PATHS < <(jq -r '.[]' <<<"$IMAGE_PATHS_JSON")
   (cd "$APP/current" && node --input-type=commonjs -e 'require("dotenv").config({path:process.argv[1],override:true}); const fs=require("node:fs"),{spawnSync}=require("node:child_process"); const candidates=["var/lib/valweb","etc/valweb",process.env.IMAGE_STORAGE_DIR,process.env.IMPORT_STORAGE_DIR,...process.argv.slice(3)].filter(Boolean).map(p=>p.replace(/^\/+/,"")).filter((p,i,a)=>a.indexOf(p)===i&&fs.existsSync("/"+p)); const paths=candidates.filter(p=>{if(fs.statfsSync("/"+p).type===0x6969){console.log("NFS omitido del respaldo local; respalda este destino desde la NAS: /"+p);return false}return true}); const r=spawnSync("tar",["-C","/","--one-file-system","-czf",process.argv[2],"--",...paths],{stdio:"inherit"}); process.exit(r.status??1)' "$CONFIG" "$BACKUPS/$STAMP-data.tar.gz" "${PERSISTED_IMAGE_PATHS[@]}")
   chmod 600 "$BACKUPS/$STAMP"* 2>/dev/null || true
+  RELEASE_STORAGE_PATHS_JSON=$(release_storage_paths)
+  mapfile -t RELEASE_STORAGE_PATHS < <(jq -r '.[]' <<<"$RELEASE_STORAGE_PATHS_JSON")
 fi
 
 if [[ $MODE != keep ]]; then
+  prune_releases "$TARGET" "${RELEASE_STORAGE_PATHS[@]-}"
   RELEASE="$RELEASES/$TARGET"
   if [[ ! -d $RELEASE ]]; then cp -a "$TMP/source" "$RELEASE"; fi
   chown -R "valweb:$VALWEB_GROUP" "$RELEASE"
@@ -358,8 +428,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=valweb
-Group=$VALWEB_GROUP
-SupplementaryGroups=$IMAGE_GROUP
+Group=$IMAGE_GROUP
+SupplementaryGroups=$VALWEB_GROUP
 WorkingDirectory=$APP/current
 EnvironmentFile=$CONFIG
 Environment=NODE_ENV=production

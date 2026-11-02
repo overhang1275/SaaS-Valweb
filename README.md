@@ -6,6 +6,7 @@ SaaS multiusuario de validaciones web de **Computer Forms**. Incluye identidad, 
 
 - [Guía comercial del enlace público](manuales/ventas-enlace-publico.md): cómo presentar la consulta y qué verá la persona destinataria.
 - [Guía del panel de administración](manuales/panel-administracion-admin.md): cuentas, usuarios, validaciones, cargas, publicación y estadísticas.
+- [Reparar permisos NFS en un LXC sin privilegios](manuales/operacion-nfs-lxc.md): diagnóstico de `EPERM fchown`, mapeo de UID/GID y reparación del montaje desde PVE.
 
 ## Requisitos
 
@@ -28,6 +29,8 @@ El instalador usa `/var/tmp` para descargar y preparar releases, y comprueba que
 El instalador crea el grupo local `valweb-images` con GID `1500` por defecto y agrega el servicio `valweb`. Consulta **Permisos de NAS para FTP** antes de recibir imágenes por FTP.
 
 El asistente permite actualizar paquetes, elegir una release o un commit, configurar la aplicación y respaldar datos antes de actualizar. Los archivos se guardan en `/opt/valweb`, la configuración en `/etc/valweb/.env` y los datos en `/var/lib/valweb`. La beta necesita un proxy TLS externo para servir HTTPS. Conserva los respaldos: las migraciones de base de datos no se revierten automáticamente.
+
+Al instalar una versión distinta, después del respaldo y antes de copiar o compilar la candidata, el instalador elimina los releases anteriores y conserva únicamente la versión instalada y la seleccionada. Si la nueva falla, restaura el enlace a la instalada. Se detiene sin limpiar si detecta datos persistentes, montajes o procesos usando un release que iba a retirar; los directorios desconocidos y enlaces simbólicos no se borran. Seleccionar el commit ya instalado conserva esa versión sin reconstruirla. La opción de mantener la instalación actual no ejecuta esta limpieza.
 
 ## Desarrollo
 
@@ -136,9 +139,11 @@ Límites iniciales:
 
 Las carpetas de validación las crea Valweb dentro de la raíz de imágenes, por ejemplo `/mnt/valweb-nfs/<tenantUUID>_<validationUUID>/por_procesar/`. El usuario del servicio y las cuentas FTP deben compartir un GID numérico para que puedan colaborar sobre NFS.
 
-1. En la NAS, crea el grupo `valweb-images` con GID `1500` si está libre y agrega las cuentas FTP autorizadas, por ejemplo `tecnologias.informacion` e `informacion.variable`.
+En un LXC sin privilegios con NFS montado en PVE y pasado por `mp0`, traduce los IDs antes de configurar la NAS. Con el mapeo `0 100000 65536`, el GID `1500` del LXC corresponde al `101500` de PVE/NAS. Consulta el [procedimiento de diagnóstico y reparación](manuales/operacion-nfs-lxc.md). Los IDs coinciden directamente solo cuando el mapeo lo permite.
+
+1. En la NAS, crea el grupo de imágenes con el GID que corresponde al host: `101500` en el caso anterior, o `1500` si los IDs no se desplazan. Agrega las cuentas FTP autorizadas, por ejemplo `tecnologias.informacion` e `informacion.variable`.
 2. Asigna ese grupo a la raíz exportada, por ejemplo `/nfs/valweb`, y habilita herencia de permisos/ACL para subcarpetas y archivos. El grupo necesita atravesar y listar directorios; `por_procesar/` necesita escritura para FTP. Los archivos que suba FTP deben quedar legibles por el grupo para que Valweb pueda procesarlos.
-3. El instalador crea `valweb-images` en el LXC con ese GID y agrega `valweb`; confirma con `id valweb` que aparezca `1500(valweb-images)`. Comprueba también que la raíz montada pertenezca al grupo `1500` con `stat -c '%g' /mnt/valweb-nfs`. Si `1500` está ocupado en alguno de los equipos, elige un ID libre entre `1000` y `1999` y configura el mismo en NAS y LXC. Para cambiar el predeterminado al ejecutar el instalador:
+3. Dentro del LXC, el instalador usa `valweb-images` con GID `1500` por defecto. Debe ser el grupo **primario** de `valweb`, la web y el worker; `id valweb` debe mostrar `gid=1500(valweb-images)`. La raíz vista desde el LXC también debe tener ese grupo: `stat -c '%g' /mnt/valweb-nfs`. Si está ocupado, elige un ID local libre entre `1000` y `1999` y calcula su equivalente en PVE/NAS. Para cambiar el predeterminado al ejecutar el instalador:
 
    ```bash
    VALWEB_IMAGE_GID=1501 bash -c "$(curl -fsSL https://raw.githubusercontent.com/overhang1275/SaaS-Valweb/refs/heads/main/ops/valweb-install.sh)"
