@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { figure, axis, motionOrders, audit, pieceCount } from './geometry.mjs';
 import { ISO_CSS } from './vendor/iso-kit.mjs';
@@ -15,9 +15,9 @@ const controls = `<div id="interactive" hidden>
     <section class="controls" aria-labelledby="sample-title">
       <h2 id="sample-title">Prueba con tres registros</h2>
       <div class="field"><label for="example">CSV de demostración</label><select id="example"><option value="valid">Sin errores</option><option value="errors">Con un código duplicado</option></select></div>
-      <table><caption class="sample-note">Datos ficticios · CSV UTF-8</caption><thead><tr><th scope="col">folio</th><th scope="col">alfanum</th></tr></thead><tbody id="rows"></tbody></table>
+      <table><caption class="sample-note">Datos ficticios · CSV UTF-8</caption><thead><tr><th scope="col">folio</th><th scope="col">alfanum</th><th scope="col">tipo</th></tr></thead><tbody id="rows"></tbody></table>
       <p class="sample-note">El folio es texto: 0001 conserva sus ceros. La búsqueda usa el alfanumérico.</p>
-      <div class="field"><label for="mapping">Columna para buscar</label><select id="mapping" disabled><option value="alfanum">alfanum → alfanumérico</option><option value="folio">folio → alfanumérico (incorrecto)</option></select></div>
+      ${['folio', 'alfanum', 'tipo'].map(column => `<div class="field"><label for="map-${column}">Columna de ${column}</label><select id="map-${column}" disabled><option value="">Selecciona una columna</option><option value="folio">folio</option><option value="alfanum">alfanum</option><option value="tipo">tipo</option></select></div>`).join('')}
       <div class="actions"><button id="load">1. Cargar ejemplo</button><button id="map" disabled>2. Asignar columnas</button><button id="process" disabled>3. Procesar</button><button id="publish" class="primary" disabled>4. Publicar</button></div>
     </section>
     <section aria-label="Estado del ejemplo">
@@ -41,7 +41,7 @@ ${license}
 ${controls}
 <section class="explanation" aria-labelledby="how-title"><h2 id="how-title">Lo que cambia en cada paso</h2><ol>
 <li><strong>Cargar:</strong> se recibe el CSV. La base publicada se conserva.</li>
-<li><strong>Mapear:</strong> se asignan las columnas folio y alfanum. El folio no es la clave de búsqueda.</li>
+<li><strong>Mapear:</strong> se asignan las tres columnas: folio, alfanum y tipo. El folio no es la clave de búsqueda.</li>
 <li><strong>Procesar y revisar:</strong> el worker valida todos los registros. Los errores se corrigen en el archivo y se vuelve a cargar. Una candidata válida espera tu revisión.</li>
 <li><strong>Publicar:</strong> la candidata sustituye la base publicada. El enlace necesita activarse por separado; revisa cuenta activa, registros e imágenes requeridas en el panel.</li>
 </ol></section>
@@ -53,4 +53,9 @@ if (process.argv.includes('--audit')) console.log(audit());
 const output = theme === 'dark' ? 'oscuro.html' : 'index.html';
 writeFileSync(here(output), html);
 if (theme === 'light') writeFileSync(here('carga-csv.svg'), license + '\n' + figure(0, 'light'));
+if (theme === 'light') {
+  const directory = new URL('../../../src/features/help/', import.meta.url);
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(new URL('csv-figure.json', directory), JSON.stringify({ svg: license + '\n' + figure(-100, 'light'), axis, ...motionOrders() }));
+}
 console.log(`${fileURLToPath(here(output))} · ${pieceCount} piezas · HTML autónomo`);

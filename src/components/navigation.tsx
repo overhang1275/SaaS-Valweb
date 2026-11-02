@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Building2, Users, ClipboardCheck, Settings, ChartNoAxesCombined } from "lucide-react";
+import { LayoutDashboard, Building2, Users, ClipboardCheck, Settings, ChartNoAxesCombined, BookOpen } from "lucide-react";
 
 export function Navigation({ admin, onNavigate }: { admin: boolean; onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -13,6 +13,7 @@ export function Navigation({ admin, onNavigate }: { admin: boolean; onNavigate?:
     ...(admin ? [{ href: "/admin/clientes", label: "Clientes", Icon: Building2 }] : []),
     { href: "/admin/usuarios", label: admin ? "Usuarios" : "Usuarios de consulta", Icon: Users },
     ...(admin ? [{ href: "/admin/ajustes", label: "Ajustes generales", Icon: Settings }] : []),
+    ...(admin ? [{ href: "/admin/como-usar", label: "Cómo usar", Icon: BookOpen }] : []),
   ];
   return <nav aria-label="Principal">{links.map(({ href, label, Icon }) => {
     const selected = pathname === href || pathname.startsWith(`${href}/`);

@@ -21,10 +21,14 @@ try {
   assert.equal(await page.evaluate(() => document.activeElement.id), 'load');
   assert.notEqual(await page.locator('#load').evaluate(el => getComputedStyle(el).outlineStyle), 'none');
   await page.keyboard.press('Enter');
-  await page.locator('#mapping').selectOption('folio');
+  await page.locator('#map-folio').selectOption('folio');
+  await page.locator('#map-alfanum').selectOption('folio');
+  await page.locator('#map').click();
   assert.equal(await page.locator('#process').isEnabled(), false);
-  await page.locator('#mapping').selectOption('alfanum');
+  await page.locator('#map-alfanum').selectOption('alfanum');
+  await page.locator('#map').click();
   assert.equal(await page.locator('#process').isEnabled(), false);
+  await page.locator('#map-tipo').selectOption('tipo');
   await page.locator('#map').focus(); await page.keyboard.press('Enter');
   await page.locator('#process').focus(); await page.keyboard.press('Enter');
   assert.match(await page.locator('#state-title').textContent(), /Revisa la base candidata/);
@@ -36,7 +40,9 @@ try {
   await page.screenshot({ path: shot('published'), fullPage: true });
   await page.locator('#example').selectOption('errors');
   assert.equal(await page.locator('#published-count').textContent(), '3');
-  await page.locator('#load').click(); await page.locator('#map').click(); await page.locator('#process').click();
+  await page.locator('#load').click();
+  for (const column of ['folio', 'alfanum', 'tipo']) await page.locator(`#map-${column}`).selectOption(column);
+  await page.locator('#map').click(); await page.locator('#process').click();
   assert.match(await page.locator('#detail').textContent(), /ABC102 y abc102/);
   assert.equal(await page.locator('#publish').isEnabled(), false);
   await page.screenshot({ path: shot('errors'), fullPage: true });

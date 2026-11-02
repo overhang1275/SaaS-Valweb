@@ -1,15 +1,19 @@
 export const EXAMPLES = {
   valid: [
-    { folio: '0001', alfanum: 'ABC101' },
-    { folio: '0002', alfanum: 'ABC102' },
-    { folio: '0003', alfanum: 'ABC103' },
+    { folio: '0001', alfanum: 'ABC101', tipo: 'Constancia' },
+    { folio: '0002', alfanum: 'ABC102', tipo: 'Diploma' },
+    { folio: '0003', alfanum: 'ABC103', tipo: 'Certificado' },
   ],
   errors: [
-    { folio: '0001', alfanum: 'ABC101' },
-    { folio: '0002', alfanum: 'ABC102' },
-    { folio: '0003', alfanum: 'abc102' },
+    { folio: '0001', alfanum: 'ABC101', tipo: 'Constancia' },
+    { folio: '0002', alfanum: 'ABC102', tipo: 'Diploma' },
+    { folio: '0003', alfanum: 'abc102', tipo: 'Certificado' },
   ],
 };
+
+export function mappingIsValid(mapping) {
+  return mapping.folio === 'folio' && mapping.alfanum === 'alfanum' && mapping.tipo === 'tipo';
+}
 
 export function initialState(example = 'valid') {
   return { example, stage: 'empty', mapped: false, wrongMapping: false, published: 0, active: false };
@@ -37,10 +41,10 @@ export function describe(state) {
   const descriptions = {
     empty: ['Antes de cargar', 'Elige un CSV de ejemplo. Recibir el archivo no cambia la base publicada.', -100, 0],
     mapping: state.wrongMapping
-      ? ['Corrige el mapeo', 'El folio conserva sus ceros iniciales. La columna de búsqueda debe ser alfanum, no folio.', -45, 1]
+      ? ['Corrige el mapeo', 'Asigna las tres columnas: folio → folio, alfanum → alfanum y tipo → tipo. El folio conserva sus ceros iniciales; la búsqueda usa alfanum.', -45, 1]
       : [state.mapped ? 'Mapeo listo' : 'Selecciona el mapeo', state.mapped
-        ? 'folio → folio; alfanum → alfanum. Ya puedes pedir al worker que procese el ejemplo.'
-        : 'Asigna folio y alfanum. El worker necesita este mapeo para validar los registros.', -45, 1],
+        ? 'folio → folio; alfanum → alfanum; tipo → tipo. Ya puedes pedir al worker que procese el ejemplo.'
+        : 'Asigna folio, alfanum y tipo. Completa los tres mapeos antes de procesar el ejemplo.', -45, 1],
     errors: ['Corrige el CSV', 'ABC102 y abc102 son el mismo alfanumérico normalizado. Corrige el archivo y vuelve a cargarlo; este lote no se puede publicar.', 0, 2],
     review: ['Revisa la base candidata', 'Los 3 registros del ejemplo son válidos. La base candidata está lista, pero aún no sustituye la base publicada. Revisa y pulsa Publicar.', 0, 2],
     published: ['Base publicada', 'La base candidata ya es la base publicada. El enlace sigue pendiente de activación: comprueba cuenta activa, registros e imágenes requeridas antes de activarlo en el panel.', 100, 3],

@@ -2,6 +2,8 @@
 
 Abre [index.html](./index.html) directamente en un navegador, incluso sin conexión. No requiere arrancar Valweb. Si GitHub u otro visor muestra el código del HTML, descarga el archivo y ábrelo localmente. [oscuro.html](./oscuro.html) ofrece la misma figura en tema oscuro; [carga-csv.svg](./carga-csv.svg) es la versión estática del manual.
 
+El archivo del ejemplo contiene las columnas `folio`, `alfanum` y `tipo`. Selecciona el origen de cada campo y pulsa **Asignar columnas**; no se procesa hasta completar correctamente los tres mapeos.
+
 La mesa representa el recorrido de una base candidata: entrada, mapeo, procesamiento/revisión y publicación. Prueba el CSV sin errores y el CSV con `ABC102`/`abc102` duplicado. Asignar `folio` como columna de búsqueda bloquea el procesamiento hasta corregir el mapeo. Los números pertenecen exclusivamente a los tres registros ficticios.
 
 El recorrido automático avanza cada cinco segundos de actividad visible. Se detiene al usar los controles y puede pausarse o reiniciarse con su botón. Con movimiento reducido, los pasos se hacen manualmente y la ficha cambia de posición sin animación. Los controles HTML admiten Tab, Enter, espacio y las teclas habituales de un selector. Al ocultar la pestaña o salir la figura de pantalla, se detiene la animación.
@@ -13,7 +15,7 @@ La publicación cambia únicamente la base del ejemplo y conserva el enlace como
 Desde la raíz del repositorio, con Node.js 22:
 
 ```sh
-node manuales/figuras/carga-csv/model.test.mjs
+node manuales/figuras/carga-csv/check-model.mjs
 node manuales/figuras/carga-csv/build.mjs --audit
 node manuales/figuras/carga-csv/build.mjs --dark
 ```
@@ -29,3 +31,5 @@ CHROME_PATH=/ruta/a/chromium node manuales/figuras/carga-csv/browser-check.mjs
 ```
 
 Las capturas quedan en `output/playwright/anatomy-csv/`, excluido de Git. Esta comprobación no necesita base de datos ni servidor web.
+
+En el panel, abre **Cómo usar → Registros CSV**. La versión React reutiliza el mismo modelo y `src/features/help/csv-figure.json`, generado por `build.mjs`. Las secciones Imágenes y Consulta pública conservan instrucciones independientes.

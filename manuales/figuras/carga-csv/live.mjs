@@ -1,4 +1,4 @@
-import { EXAMPLES, initialState, transition, describe } from './model.mjs';
+import { EXAMPLES, initialState, transition, describe, mappingIsValid } from './model.mjs';
 
 export function mount({ axis, orders, indices }) {
   const $ = selector => document.querySelector(selector);
@@ -30,7 +30,7 @@ export function mount({ axis, orders, indices }) {
     $('#published-count').textContent = String(state.published);
     $('#base-state').textContent = state.published ? 'Base publicada' : 'Sin base publicada';
     $('#map').disabled = !view.canMap;
-    $('#mapping').disabled = !view.canMap;
+    for (const column of ['folio', 'alfanum', 'tipo']) $(`#map-${column}`).disabled = !view.canMap;
     $('#process').disabled = !view.canProcess;
     $('#publish').disabled = !view.canPublish;
     $('#load').textContent = state.stage === 'empty' ? '1. Cargar ejemplo' : 'Volver a cargar';
@@ -41,7 +41,7 @@ export function mount({ axis, orders, indices }) {
     const body = $('#rows');
     body.replaceChildren(...EXAMPLES[state.example].map(row => {
       const tr = document.createElement('tr');
-      for (const value of [row.folio, row.alfanum]) {
+      for (const value of [row.folio, row.alfanum, row.tipo]) {
         const cell = document.createElement('td'); cell.textContent = value; tr.append(cell);
       }
       return tr;
@@ -61,7 +61,9 @@ export function mount({ axis, orders, indices }) {
       elapsed += dt;
       if (elapsed >= 5) {
         elapsed = 0;
-        state = transition(state, tourActions[tourIndex++ % tourActions.length]);
+        const action = tourActions[tourIndex++ % tourActions.length];
+        if (action === 'map' || action === 'reset') for (const column of ['folio', 'alfanum', 'tipo']) $(`#map-${column}`).value = action === 'map' ? column : '';
+        state = transition(state, action);
         render();
       }
     }
@@ -77,19 +79,20 @@ export function mount({ axis, orders, indices }) {
   function act(action) { touring = false; elapsed = 0; state = transition(state, action); render(); }
 
   $('#load').addEventListener('click', () => act('load'));
-  $('#map').addEventListener('click', () => act($('#mapping').value === 'alfanum' ? 'map' : 'wrong-map'));
-  $('#mapping').addEventListener('change', () => act($('#mapping').value === 'folio' ? 'wrong-map' : 'clear-map'));
+  $('#map').addEventListener('click', () => act(mappingIsValid(Object.fromEntries(['folio', 'alfanum', 'tipo'].map(column => [column, $(`#map-${column}`).value]))) ? 'map' : 'wrong-map'));
+  for (const column of ['folio', 'alfanum', 'tipo']) $(`#map-${column}`).addEventListener('change', () => act('clear-map'));
   $('#process').addEventListener('click', () => act('process'));
   $('#publish').addEventListener('click', () => act('publish'));
   $('#example').addEventListener('change', event => {
     state = { ...initialState(event.target.value), published: state.published };
-    $('#mapping').value = 'alfanum';
+    for (const column of ['folio', 'alfanum', 'tipo']) $(`#map-${column}`).value = '';
     pause();
   });
   $('#tour').addEventListener('click', () => {
     if (touring) { pause(); return; }
     state = { ...initialState(), published: state.published };
-    $('#example').value = 'valid'; $('#mapping').value = 'alfanum';
+    $('#example').value = 'valid';
+    for (const column of ['folio', 'alfanum', 'tipo']) $(`#map-${column}`).value = '';
     tourIndex = 0; elapsed = 0; touring = true;
     // Reduced motion still offers the walkthrough, one explicit step at a time.
     if (reduced.matches) { touring = false; state = transition(state, 'load'); }

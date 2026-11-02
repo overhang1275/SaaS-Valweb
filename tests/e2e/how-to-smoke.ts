@@ -1,0 +1,167 @@
+import "dotenv/config";
+import assert from "node:assert/strict";
+import { randomUUID, randomBytes } from "node:crypto";
+import { mkdir } from "node:fs/promises";
+import { hash } from "argon2";
+import { chromium, type Page } from "playwright";
+
+const databaseUrl = process.env.TEST_DATABASE_URL;
+assert(databaseUrl && new URL(databaseUrl).pathname === "/valweb_test", "Use a disposable valweb_test database");
+process.env.DATABASE_URL = databaseUrl;
+const { prisma } = await import("../../src/lib/prisma");
+const base = process.env.HOWTO_BASE_URL || "http://localhost:3002";
+const run = randomUUID(), adminId = randomUUID(), clientId = randomUUID(), tenantId = randomUUID();
+const password = randomBytes(24).toString("hex");
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH });
+const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce" });
+const page = await context.newPage();
+const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+async function login(target: Page, email: string) {
+  await target.goto(`${base}/login`);
+  await target.getByLabel("Correo electrónico", { exact: true }).fill(email);
+  await target.getByLabel("Contraseña", { exact: true }).fill(password);
+  await target.getByRole("button", { name: "Entrar", exact: true }).click();
+  await target.waitForURL(`${base}/dashboard`);
+}
+const button = (name: string) => page.getByRole("button", { name, exact: true });
+try {
+  await mkdir("output/playwright/how-to", { recursive: true });
+  await prisma.tenant.create({ data: { id: tenantId, name: `Guías ${run}` } });
+  const passwordHash = await hash(password);
+  await prisma.user.createMany({ data: [
+    { id: adminId, email: `howto-admin-${run}@example.test`, name: "Administrador de pruebas", role: "ADMIN", status: "ACTIVE", passwordHash },
+    { id: clientId, email: `howto-client-${run}@example.test`, name: "Cliente de pruebas", tenantId, role: "CLIENT", status: "ACTIVE", passwordHash },
+  ] });
+  await page.goto(`${base}/admin/como-usar`); await page.waitForURL(`${base}/login`);
+  await login(page, `howto-admin-${run}@example.test`);
+  await page.getByRole("navigation", { name: "Principal", exact: true }).getByRole("link", { name: "Cómo usar", exact: true }).click();
+  await page.getByRole("heading", { name: "Cómo usar", exact: true }).waitFor();
+  assert.equal(await page.getByRole("navigation", { name: "Principal", exact: true }).getByRole("link", { name: "Cómo usar", exact: true }).getAttribute("aria-current"), "page");
+  assert.equal(await button("4. Publicar").isEnabled(), false);
+  await button("1. Cargar ejemplo").click();
+  await page.getByLabel("Columna de folio", { exact: true }).selectOption("folio");
+  await page.getByLabel("Columna de alfanum", { exact: true }).selectOption("folio");
+  await button("2. Asignar columnas").click();
+  assert.equal(await button("3. Procesar").isEnabled(), false);
+  await page.getByLabel("Columna de alfanum", { exact: true }).selectOption("alfanum");
+  await button("2. Asignar columnas").click();
+  assert.equal(await button("3. Procesar").isEnabled(), false, "Falta mapear tipo");
+  await page.getByLabel("Columna de tipo", { exact: true }).selectOption("tipo");
+  await button("2. Asignar columnas").focus(); await page.keyboard.press("Enter");
+  await button("3. Procesar").focus(); await page.keyboard.press("Enter");
+  assert.equal(await button("4. Publicar").isEnabled(), true);
+  await button("4. Publicar").click();
+  assert.match(await page.locator(".howto-published").textContent() || "", /3 registros publicados/);
+  assert.match(await page.locator(".howto-published").textContent() || "", /pendiente de activación/);
+  await page.getByLabel("Archivo de ejemplo", { exact: true }).selectOption("errors");
+  await button("1. Cargar ejemplo").click();
+  for (const column of ["folio", "alfanum", "tipo"]) await page.getByLabel(`Columna de ${column}`, { exact: true }).selectOption(column);
+  await button("2. Asignar columnas").click(); await button("3. Procesar").click();
+  assert.equal(await button("4. Publicar").isEnabled(), false);
+  assert.match(await page.locator(".howto-demo-status").textContent() || "", /ABC102 y abc102/);
+  const sections = page.getByRole("navigation", { name: "Secciones de cómo usar", exact: true });
+  await page.keyboard.press("Tab");
+  await sections.getByRole("link", { name: "Registros CSV", exact: true }).focus();
+  assert.notEqual(await sections.getByRole("link", { name: "Registros CSV", exact: true }).evaluate(el => getComputedStyle(el).outlineStyle), "none", "Las secciones deben mostrar foco de teclado");
+  await sections.getByRole("link", { name: "Imágenes", exact: true }).click();
+  await page.getByRole("heading", { name: "Preparar y publicar imágenes", exact: true }).waitFor();
+  assert.equal(await page.locator(".howto-anatomy [data-sheet]").count() > 0, true);
+  assert.equal(await page.getByRole("status").count(), 1, "Un solo anuncio de estado por figura");
+  await page.getByLabel("Caso de imágenes", { exact: true }).selectOption("replacement");
+  await button("Procesar imagen").click();
+  assert.match(await page.locator(".howto-demo-status").textContent() || "", /Reemplazo en revisión/);
+  assert.equal(await button("Confirmar reemplazo").isEnabled(), true);
+  await button("Confirmar reemplazo").click();
+  assert.match(await page.locator(".howto-published").textContent() || "", /retirado tras publicar/);
+  await page.getByLabel("Caso de imágenes", { exact: true }).selectOption("cleanup-failure");
+  await button("Procesar imagen").click();
+  assert.equal(await button("Reintentar limpieza").isEnabled(), true);
+  await button("Reintentar limpieza").click();
+  assert.match(await page.locator(".howto-published").textContent() || "", /retirado tras publicar/);
+  await page.getByLabel("Caso de imágenes", { exact: true }).selectOption("error");
+  await button("Procesar imagen").click();
+  assert.match(await page.locator(".howto-demo-status").textContent() || "", /Lote con errores/);
+  await page.getByLabel("Destino de ejemplo", { exact: true }).selectOption("NFS");
+  await page.getByLabel("Destino disponible", { exact: true }).uncheck();
+  await button("Procesar imagen").click();
+  assert.match(await page.locator(".howto-demo-status").textContent() || "", /Destino no disponible/);
+  assert.equal(await page.getByLabel("Destino de ejemplo", { exact: true }).inputValue(), "NFS");
+  await button("Ver siguiente paso").click();
+  assert.equal(await page.getByLabel("Destino de ejemplo", { exact: true }).inputValue(), "LOCAL");
+  assert.equal(await page.getByLabel("Destino disponible", { exact: true }).isChecked(), true);
+  await button("Ver siguiente paso").click();
+  assert.match(await page.locator(".howto-demo-status").textContent() || "", /Reemplazo en revisión/);
+  await sections.getByRole("link", { name: "Consulta pública", exact: true }).click();
+  await page.getByRole("heading", { name: "Activar y compartir una consulta", exact: true }).waitFor();
+  assert.equal(await page.locator(".howto-anatomy [data-sheet]").count() > 0, true);
+  assert.equal(await page.getByRole("status").count(), 1, "Un solo anuncio de estado por figura");
+  await page.getByLabel("Acceso a la consulta", { exact: true }).selectOption("denied");
+  await button("Consultar código").click();
+  assert.match(await page.locator(".howto-demo-status").textContent() || "", /Acceso vigente requerido/);
+  assert.match(await page.locator(".howto-published").textContent() || "", /Ningún registro entregado/);
+  await page.getByLabel("Acceso a la consulta", { exact: true }).selectOption("allowed");
+  await page.getByLabel("Código del ejemplo", { exact: true }).selectOption("unknown");
+  await button("Consultar código").click();
+  assert.match(await page.locator(".howto-demo-status").textContent() || "", /Código no encontrado/);
+  await page.getByLabel("Código del ejemplo", { exact: true }).selectOption("known");
+  await page.getByLabel("Imagen del resultado", { exact: true }).selectOption("missing");
+  await button("Consultar código").click();
+  assert.match(await page.locator(".howto-published").textContent() || "", /0001/);
+  assert.match(await page.locator(".howto-published").textContent() || "", /no disponible/);
+  await page.getByLabel("tipo", { exact: true }).uncheck();
+  await button("Consultar código").click();
+  assert.doesNotMatch(await page.locator(".howto-published").textContent() || "", /Tipo de documento/);
+  await button("Revocar enlace").click();
+  await button("Consultar código").click();
+  assert.match(await page.locator(".howto-demo-status").textContent() || "", /nueva entrega bloqueada/);
+  assert.match(await page.locator(".howto-published").textContent() || "", /0001/);
+  await button("Ver siguiente paso").click();
+  assert.equal(await page.getByLabel("Estado del enlace", { exact: true }).inputValue(), "ready");
+  assert.equal(await page.getByLabel("Acceso a la consulta", { exact: true }).inputValue(), "denied");
+  assert.equal(await page.getByRole("link", { name: "Revisar usuarios de consulta" }).getAttribute("href"), "/admin/usuarios/consulta");
+  await page.goBack(); await page.getByRole("heading", { name: "Preparar y publicar imágenes", exact: true }).waitFor();
+  await page.goForward(); await page.getByRole("heading", { name: "Activar y compartir una consulta", exact: true }).waitFor();
+  await page.goto(`${base}/admin/como-usar?seccion=desconocida`);
+  await page.getByRole("heading", { name: "Cargar y publicar registros", exact: true }).waitFor();
+  for (const width of [1440, 1280, 768, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `Overflow at ${width}`);
+    await page.screenshot({ path: `output/playwright/how-to/registros-${width}.png`, fullPage: true });
+  }
+  await page.getByRole("button", { name: "Abrir navegación", exact: true }).click();
+  await page.getByRole("dialog").getByRole("link", { name: "Cómo usar", exact: true }).click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  for (const [label, title] of [["Imágenes", "Preparar y publicar imágenes"], ["Consulta pública", "Activar y compartir una consulta"]]) {
+    await sections.getByRole("link", { name: label, exact: true }).click();
+    await page.getByRole("heading", { name: title, exact: true }).waitFor();
+    for (const width of [1440, 768, 390]) {
+      await page.setViewportSize({ width, height: 1000 });
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      await page.screenshot({ path: `output/playwright/how-to/${label === "Imágenes" ? "imagenes" : "consulta"}-${width}.png`, fullPage: true });
+    }
+  }
+  const client = await browser.newContext(); const clientPage = await client.newPage();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto(`${base}/admin/como-usar`);
+  await button("1. Cargar ejemplo").click();
+  await page.locator(".howto-art").scrollIntoViewIfNeeded();
+  const beforeMotion = await page.locator("[data-sheet]").first().getAttribute("transform");
+  await page.waitForTimeout(100);
+  assert.notEqual(await page.locator("[data-sheet]").first().getAttribute("transform"), beforeMotion);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.waitForTimeout(50);
+  const still = await page.locator("[data-sheet]").first().getAttribute("transform");
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator("[data-sheet]").first().getAttribute("transform"), still);
+  await login(clientPage, `howto-client-${run}@example.test`);
+  assert.equal(await clientPage.getByRole("navigation", { name: "Principal", exact: true }).getByRole("link", { name: "Cómo usar", exact: true }).count(), 0);
+  await clientPage.goto(`${base}/admin/como-usar`); await clientPage.waitForURL(`${base}/dashboard`);
+  assert.deepEqual(errors, []);
+  console.log("Cómo usar: ADMIN, anónimo/CLIENT bloqueados, navegación, historial, simulación válida/con errores, teclado y 4 anchos: OK");
+} finally {
+  await browser.close();
+  await prisma.user.deleteMany({ where: { id: { in: [adminId, clientId] } } });
+  await prisma.tenant.deleteMany({ where: { id: tenantId } });
+  await prisma.$disconnect();
+}
