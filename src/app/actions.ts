@@ -5,6 +5,7 @@ import { ZodError, z } from "zod";
 import { getActor } from "@/lib/auth";
 import type { ActionState } from "@/lib/action-state";
 import { limitRequest } from "@/features/identity/rate-limit";
+import { resetUsageStatistics } from "@/features/statistics/service";
 import { consumeAccessToken, createTenant, inviteConsultationUser, inviteUser, requestPasswordReset, revokeUserSessions, saveConsultationUserValidations, setTenantStatus, setUserStatus, updateTenantName } from "@/features/identity/service";
 
 const value = (form: FormData, key: string) => String(form.get(key) ?? "");
@@ -31,6 +32,16 @@ async function adminMutation(work: (actor: NonNullable<Awaited<ReturnType<typeof
 
 export async function createTenantAction(_: ActionState, form: FormData) {
   return adminMutation(actor => createTenant(actor, { name: value(form, "name") }), "Cuenta creada. Ya puedes invitar a su equipo.");
+}
+
+export async function resetStatisticsAction(_: ActionState, form: FormData) {
+  const tenantId = value(form, "tenantId") || undefined;
+  if (tenantId && !z.uuid().safeParse(tenantId).success) return error("La cuenta seleccionada no es válida.");
+  return adminMutation(async actor => {
+    await resetUsageStatistics(actor, tenantId);
+    revalidatePath("/estadisticas");
+    revalidatePath("/validaciones", "layout");
+  }, "Historial de consultas restablecido.");
 }
 
 export async function updateTenantNameAction(_: ActionState, form: FormData) {

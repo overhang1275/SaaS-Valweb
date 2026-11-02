@@ -16,6 +16,16 @@ function utcDate(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
+export async function resetUsageStatistics(actor: Actor, tenantId?: string) {
+  if (tenantId !== undefined) idSchema.parse(tenantId);
+  return prisma.$transaction(async tx => {
+    const user = await currentActor(tx, actor, true);
+    if (tenantId && !await tx.tenant.findUnique({ where: { id: tenantId }, select: { id: true } })) throw new Error("La cuenta seleccionada no está disponible.");
+    const result = await tx.validationDailyStat.deleteMany({ where: tenantId ? { tenantId } : {} });
+    await tx.auditLog.create({ data: { actorId: user.id, tenantId, action: "STATISTICS_RESET", metadata: { deletedRows: result.count } } });
+  });
+}
+
 export async function getUsageStatistics(actor: Actor, period: StatisticsPeriod, requestedTenantId?: string) {
   return prisma.$transaction(async tx => {
     const user = await currentActor(tx, actor);

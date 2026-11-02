@@ -25,4 +25,5 @@ it("renders chart tooltips outside SVG rect elements", async () => {
 
   expect(markup).toMatch(/<g[^>]*><title>1 oct: 1 consultas<\/title><rect/);
   expect(markup).not.toMatch(/<rect\b[^>]*>[\s\S]*?<title>/);
+  expect(markup).not.toContain("Restablecer estadísticas");
 });

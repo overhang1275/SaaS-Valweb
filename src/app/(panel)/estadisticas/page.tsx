@@ -1,4 +1,6 @@
 import { requireActor } from "@/lib/auth";
+import { resetStatisticsAction } from "@/app/actions";
+import { ActionForm } from "@/components/action-form";
 import { getUsageStatistics, parseStatisticsPeriod } from "@/features/statistics/service";
 
 export const metadata = { title: "Estadísticas" };
@@ -56,7 +58,7 @@ export default async function StatisticsPage({ searchParams }: { searchParams: S
   const foundRate = statistics.queries === 0n ? 0 : Number(statistics.found * 1000n / statistics.queries) / 10;
 
   return <>
-    <div className="page-heading statistics-heading"><div><h1>Estadísticas</h1><p>Cada intento válido cuenta como consulta; se excluyen formatos inválidos y solicitudes bloqueadas.</p></div></div>
+    <div className="page-heading statistics-heading"><div><h1>Estadísticas</h1><p>Cada intento válido cuenta como consulta; se excluyen formatos inválidos y solicitudes bloqueadas.</p></div>{admin && <ActionForm key={statistics.selectedTenantId ?? "all"} action={resetStatisticsAction} label="Restablecer estadísticas" pendingLabel="Restableciendo…" compact confirmMessage={`Se eliminará permanentemente todo el historial de consultas de ${statistics.selectedTenantId ? `la cuenta «${statistics.tenants.find(tenant => tenant.id === statistics.selectedTenantId)?.name}»` : "todas las cuentas"}, sin limitarse al periodo mostrado. Se conservarán registros, imágenes y validaciones. ¿Continuar?`}><input type="hidden" name="tenantId" value={statistics.selectedTenantId ?? ""} /></ActionForm>}</div>
     <form action="/estadisticas" method="get" className="statistics-filters">
       <div className="field"><label htmlFor="statistics-period">Periodo</label><select id="statistics-period" name="periodo" defaultValue={String(period)}><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option></select></div>
       {admin && <div className="field"><label htmlFor="statistics-account">Cuenta</label><select id="statistics-account" name="cuenta" defaultValue={statistics.selectedTenantId ?? ""}><option value="">Todas las cuentas</option>{statistics.tenants.map(tenant => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select></div>}
