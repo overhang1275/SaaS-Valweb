@@ -46,11 +46,13 @@ node_modules
 /docs/superpowers/specs/*
 !/docs/superpowers/specs/2026-10-30-editar-nombre-cliente-design.md
 !/docs/superpowers/specs/2026-10-30-anatomy-usos-design.md
+!/docs/superpowers/specs/2026-11-02-smtp-settings-design.md
 !/docs/superpowers/plans/
 /docs/superpowers/plans/*
 !/docs/superpowers/plans/2026-10-30-como-usar.md
 !/docs/superpowers/plans/2026-10-30-editar-nombre-cliente.md
 !/docs/superpowers/plans/2026-10-30-anatomy-csv.md
+!/docs/superpowers/plans/2026-11-02-smtp-settings.md
 /design-resources/
 *.log
 

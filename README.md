@@ -76,7 +76,11 @@ SMTP_PASSWORD=
 SMTP_FROM=
 ```
 
-Configura los secretos directamente en `.env` o en el gestor de secretos del despliegue; no los publiques en chat, Git o logs. `SMTP_USER` es el buzón de envío y `SMTP_FROM` puede usar el mismo buzón. Un remitente diferente necesita permisos Send As.
+Un administrador puede cambiar servidor, puerto, remitente, usuario y contraseña en **Ajustes generales → Notificaciones**. Los ajustes son globales, se guardan en la base de datos y se aplican al siguiente envío de la web o del worker, sin reiniciarlos. La contraseña se cifra con el secreto estable `NEXTAUTH_SECRET` y no se muestra en el formulario. Dejarla vacía conserva la actual cuando servidor y usuario no cambian; si cambia alguno, se requiere introducir la contraseña nueva. Un relay sin autenticación puede guardar usuario y contraseña vacíos. El puerto 465 usa TLS directo; los envíos con autenticación en otros puertos exigen STARTTLS y verificación del certificado.
+
+Hasta guardar ajustes desde el panel, se usan las variables del servidor indicadas arriba. Puedes configurarlas en `.env` o en el gestor de secretos del despliegue; no publiques secretos en chat, Git o logs. `SMTP_USER` suele ser el buzón de envío y `SMTP_FROM` puede usar el mismo buzón. Un remitente diferente necesita permisos Send As. El respaldo debe conservar tanto la base de datos como `NEXTAUTH_SECRET` para recuperar las credenciales cifradas.
+
+Después de guardar, pulsa **Enviar correo de prueba**. La prueba usa los ajustes guardados y se dirige al usuario SMTP si es una dirección de correo válida; en otro caso, al remitente. Hay un límite de una prueba por minuto por administrador. Guardar valida los campos, pero la prueba confirma que el servidor acepta las credenciales y el envío. La actualización requiere aplicar la migración `20261102000000_smtp_settings`, incluida en el despliegue del instalador.
 
 Para Office 365 se utiliza STARTTLS en el puerto 587, con verificación del certificado y TLS 1.2 o posterior. No utilices el puerto 465 para este servicio. El buzón debe tener habilitado SMTP AUTH y su política debe permitir el método de autenticación configurado. El login de Valweb es independiente del acceso al buzón.
 
@@ -193,6 +197,22 @@ El recorrido levanta un SMTP local en `127.0.0.1:2525`, captura los mensajes en 
 Con `npm run dev:test` activo, ejecuta también `npm run test:e2e:validations` para comprobar CRUD, textos, UUID, carga/reemplazo/borrado de imágenes, formatos falsos, límites, acceso privado, CSRF, aislamiento, estados y confirmaciones. La activación positiva utiliza un dataset y folio reales creados exclusivamente en valweb_test; no se agrega información ficticia al entorno principal. Cubre390/768/1280/1440px y desplazamiento con teclado de la tabla móvil. No necesita enviar correos y elimina únicamente sus propios fixtures. Ejecuta los recorridos de navegador de uno en uno.
 
 `npm run test:e2e:filters`, contra `start:test`, verifica búsqueda/paginación de Clientes y Usuarios con 61 cuentas y 60 miembros, filtros combinados, acceso por rol, tabs/URL/historial/teclado, borradores conservados al alternar y ausencia de buscador en Invitar usuario. `test:e2e:catalog` incluye la búsqueda estándar de Validaciones y los filtros avanzados del catálogo. Ejecuta estos recorridos de uno en uno y después de integración; permiten `CHROME_PATH` para utilizar Chromium instalado.
+
+Para probar los ajustes de correo con autenticación y STARTTLS reales, genera un certificado local temporal y confía en él solo en los procesos de prueba:
+
+```bash
+mkdir -p output/playwright/mail-settings
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
+  -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' \
+  -keyout output/playwright/mail-settings/smtp-key.pem \
+  -out output/playwright/mail-settings/smtp-cert.pem
+# Terminal 1, con TEST_DATABASE_URL apuntando a valweb_test y migraciones aplicadas:
+NODE_EXTRA_CA_CERTS="$PWD/output/playwright/mail-settings/smtp-cert.pem" npm run dev:test
+# Terminal 2; puedes añadir CHROME_PATH si Chromium no está en la ruta predeterminada:
+NODE_EXTRA_CA_CERTS="$PWD/output/playwright/mail-settings/smtp-cert.pem" npm run test:e2e:mail
+```
+
+El recorrido SMTP guarda y conserva credenciales cifradas, comprueba la sesión del administrador, envía dos mensajes capturados únicamente en `127.0.0.1:2525`, verifica el límite de pruebas y revisa escritorio/tablet/móvil. Restaura la configuración previa y elimina sus usuarios temporales. No desactiva la verificación TLS; no lo ejecutes simultáneamente con otras pruebas que modifiquen los ajustes globales de `valweb_test`.
 
 ## Producción y límites de esta fase
 

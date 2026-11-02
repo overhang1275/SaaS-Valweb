@@ -3,7 +3,7 @@ import { hash, verify, argon2id } from 'argon2';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
 import type { Prisma } from '../../generated/prisma/client';
-import { encryptAccessToken } from './mail';
+import { encryptSecret as encryptAccessToken } from '../../lib/secrets';
 import { hashAccessToken } from './tokens';
 import { tenantListQuerySchema, userListQuerySchema, type TenantListQuery, type UserListQuery } from './list-query';
 

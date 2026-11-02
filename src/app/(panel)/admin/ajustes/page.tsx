@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { requireActor } from "@/lib/auth";
 import { getSystemStatus } from "@/features/system/service";
-import { restartImportWorkerAction, sendConfiguredTestEmailAction } from "@/features/system/actions";
+import { restartImportWorkerAction } from "@/features/system/actions";
 import { ActionForm } from "@/components/action-form";
 import { SystemRefresh } from "@/components/system-refresh";
 import { ImageStorageSettings } from "@/components/image-storage-settings";
 import { getGlobalImageLocations } from "@/features/images/locations";
+import { MailSettings } from "@/components/mail-settings";
+import { getMailSettings } from "@/features/system/mail-settings";
 
 export const metadata = { title: "Ajustes generales" };
 export const runtime = "nodejs";
@@ -18,7 +20,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const params = await searchParams;
   const selected: SettingsSection = settingsSections.includes(params.seccion as SettingsSection) ? params.seccion as SettingsSection : "sistema";
   const actor = await requireActor(true);
-  const [status, locations] = await Promise.all([getSystemStatus(actor), getGlobalImageLocations(actor)]);
+  const [status, locations, mailSettings] = await Promise.all([getSystemStatus(actor), getGlobalImageLocations(actor), selected === "notificaciones" ? getMailSettings(actor) : null]);
   const controllable = status.worker === "running" || status.worker === "stopped";
   const needsAttention = status.worker !== "running" || status.database === null || status.freeGiB === null || status.freeGiB < 1;
   return <div className="system-settings">
@@ -38,10 +40,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       <p className="help">Los lotes por revisar necesitan el mapeo de columnas. Revisa los errores desde la validación correspondiente; reiniciar no corrige archivos inválidos.</p>
     </section></>}
     {selected === "almacenamiento" && <ImageStorageSettings locations={locations} />}
-    {selected === "notificaciones" && <section className="form-section system-mail-test" aria-labelledby="system-mail-test-title">
-      <div><h2 id="system-mail-test-title">Correo electrónico</h2><p>Envía una prueba al buzón configurado en SMTP para comprobar que Valweb puede entregar mensajes.</p></div>
-      <ActionForm action={sendConfiguredTestEmailAction} label="Enviar correo de prueba" pendingLabel="Enviando…"><p className="help">La prueba se envía a SMTP_USER o, si no está definido, a SMTP_FROM. Se limita a un envío por minuto.</p></ActionForm>
-    </section>}
+    {selected === "notificaciones" && mailSettings && <MailSettings settings={mailSettings} />}
     {selected === "operacion" && <section className="form-section system-recovery" aria-labelledby="system-recovery-title"><div><h2 id="system-recovery-title">Recuperar el procesador</h2><p>Inicia el servicio si está detenido o reinícialo si necesitas recuperar el procesamiento.</p><p>Un lote activo termina antes del reinicio. Las cargas en cola se conservan; no hace falta volver a subirlas.</p></div>
       <ActionForm action={restartImportWorkerAction} label={status.worker === "stopped" ? "Iniciar procesador" : "Reiniciar procesador"} pendingLabel="Solicitando…" disabled={!controllable} confirmMessage="¿Reiniciar el procesador de importaciones? Si hay un lote activo, terminará antes del reinicio. Las cargas en cola se conservan."><p className="help">Esta acción afecta a las cargas de todas las cuentas. El acceso y las consultas públicas siguen disponibles.</p></ActionForm>
     </section>}

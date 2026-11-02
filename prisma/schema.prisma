@@ -95,6 +95,16 @@ model RateLimitBucket {
   @@index([expiresAt])
 }
 
+model SmtpSettings {
+  id Int @id @default(1)
+  host String @db.VarChar(253)
+  port Int
+  from String @db.VarChar(320)
+  user String @db.VarChar(254)
+  encryptedPassword String?
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+}
+
 enum ValidationStatus {
   DRAFT
   ACTIVE

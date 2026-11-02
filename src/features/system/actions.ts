@@ -1,12 +1,28 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { ZodError } from "zod";
 import { getActor } from "@/lib/auth";
 import type { ActionState } from "@/lib/action-state";
 import { prisma } from "@/lib/prisma";
 import { limitRequest } from "@/features/identity/rate-limit";
 import { sendConfiguredTestEmail } from "@/features/identity/mail";
 import { restartImportWorker } from "./service";
+import { getMailSettings, MailSettingsError, saveMailSettings } from "./mail-settings";
+
+export async function saveMailSettingsAction(_: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const actor = await getActor();
+    if (!actor || actor.role !== "ADMIN") return { status: "error", message: "Solo un administrador puede configurar el correo." };
+    await saveMailSettings(actor, Object.fromEntries(form));
+    revalidatePath("/admin/ajustes");
+    return { status: "success", message: "Configuración de correo guardada. Se aplicará a los próximos envíos." };
+  } catch (cause) {
+    return { status: "error", message: cause instanceof MailSettingsError ? cause.message : cause instanceof ZodError
+      ? "Revisa el servidor, puerto, remitente y credenciales SMTP."
+      : "No se pudo guardar el correo. Comprueba tu acceso y vuelve a intentarlo." };
+  }
+}
 
 export async function restartImportWorkerAction(): Promise<ActionState> {
   try {
@@ -25,6 +41,7 @@ export async function sendConfiguredTestEmailAction(_: ActionState, _form: FormD
   try {
     const actor = await getActor();
     if (!actor || actor.role !== "ADMIN") return { status: "error", message: "Solo un administrador puede probar el correo." };
+    await getMailSettings(actor);
     if (!await limitRequest("system-email-test", actor.id, 1, 60)) return { status: "error", message: "Espera un minuto antes de volver a enviar una prueba." };
     await prisma.auditLog.create({ data: { actorId: actor.id, targetId: actor.id, action: "SMTP_TEST_EMAIL_REQUESTED" } });
     const recipient = await sendConfiguredTestEmail();

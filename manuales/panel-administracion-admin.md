@@ -84,7 +84,8 @@ Cambiar los campos del resultado o publicar una base nueva puede desactivar la v
 - En **Estadísticas**, filtra por periodo. El administrador también puede filtrar por cuenta.
 - Los registros cuentan la base publicada actual. Las consultas acumulan la actividad de la validación; no representan visitantes únicos. Se excluyen códigos con formato inválido y solicitudes bloqueadas.
 - En **Ajustes generales → Sistema**, revisa la base de datos, el procesador, el espacio disponible y las cargas que esperan revisión.
-- En **Notificaciones**, puedes enviar un correo de prueba. En **Operación**, puedes iniciar o reiniciar el procesador; los lotes en cola se conservan.
+- En **Notificaciones**, configura servidor SMTP, puerto, remitente, usuario y contraseña. Se aplica a todas las cuentas en los próximos envíos, sin reiniciar. La contraseña guardada no se muestra; dejarla vacía la conserva si no cambias servidor ni usuario. Al cambiar alguno, introduce la contraseña nueva. Guarda primero y pulsa **Enviar correo de prueba** para comprobar la entrega; el límite es una prueba por minuto. Un usuario SMTP que no sea un correo recibe la prueba en la dirección del remitente.
+- En **Operación**, puedes iniciar o reiniciar el procesador; los lotes en cola se conservan.
 
 Si el enlace muestra «Estamos preparando tu consulta», revisa que la validación esté activa, que la cuenta esté activa y que haya una base publicada. Si se muestran imágenes, confirma que la imagen asociada exista.
 

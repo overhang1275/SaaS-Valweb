@@ -1,48 +1,23 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import nodemailer from 'nodemailer';
+import addressparser from 'nodemailer/lib/addressparser';
+import { z } from 'zod';
+import { getSmtpConfig } from '../system/mail-settings';
+export { encryptSecret as encryptAccessToken, decryptSecret as decryptAccessToken } from '../../lib/secrets';
 
 const htmlEscapes: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, char => htmlEscapes[char]);
-function emailTokenKey() {
-  const secret = process.env.NEXTAUTH_SECRET;
-  if (!secret) throw new Error('NEXTAUTH_SECRET no está configurado.');
-  return createHash('sha256').update(`valweb-access-email:${secret}`).digest();
+async function smtpConfig() {
+  const config = await getSmtpConfig();
+  if (!process.env.NEXTAUTH_URL) throw new Error('El correo SMTP no está configurado.');
+  return { ...config, baseUrl: process.env.NEXTAUTH_URL };
 }
 
-export function encryptAccessToken(token: string, accessTokenId: string): string {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', emailTokenKey(), iv);
-  cipher.setAAD(Buffer.from(accessTokenId));
-  const encrypted = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
-  return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64');
-}
-
-export function decryptAccessToken(encryptedToken: string, accessTokenId: string): string {
-  const value = Buffer.from(encryptedToken, 'base64');
-  if (value.length < 29) throw new Error('El token de correo cifrado no es válido.');
-  const decipher = createDecipheriv('aes-256-gcm', emailTokenKey(), value.subarray(0, 12));
-  decipher.setAAD(Buffer.from(accessTokenId));
-  decipher.setAuthTag(value.subarray(12, 28));
-  return Buffer.concat([decipher.update(value.subarray(28)), decipher.final()]).toString('utf8');
-}
-
-function smtpConfig() {
-  const { SMTP_USER, SMTP_PASSWORD, NEXTAUTH_URL } = process.env;
-  const host = process.env.SMTP_HOST || 'smtp.office365.com';
-  const port = Number(process.env.SMTP_PORT || '587');
-  const from = process.env.SMTP_FROM || SMTP_USER;
-  const office365 = host.toLowerCase() === 'smtp.office365.com';
-  if (!from || !NEXTAUTH_URL || (office365 && (!SMTP_USER || !SMTP_PASSWORD))) throw new Error('El correo SMTP no está configurado.');
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('El puerto SMTP no es válido.');
-  return { host, port, from, user: SMTP_USER, password: SMTP_PASSWORD, baseUrl: NEXTAUTH_URL, office365 };
-}
-
-function createSmtpTransport(config: ReturnType<typeof smtpConfig>) {
-  return nodemailer.createTransport({ host: config.host, port: config.port, connectionTimeout: 4000, greetingTimeout: 4000, socketTimeout: 8000, disableFileAccess: true, disableUrlAccess: true, secure: config.port === 465, requireTLS: config.office365, tls: { minVersion: 'TLSv1.2' }, auth: config.user ? { user: config.user, pass: config.password } : undefined });
+function createSmtpTransport(config: Awaited<ReturnType<typeof smtpConfig>>) {
+  return nodemailer.createTransport({ host: config.host, port: config.port, connectionTimeout: 4000, greetingTimeout: 4000, socketTimeout: 8000, disableFileAccess: true, disableUrlAccess: true, secure: config.port === 465, requireTLS: Boolean(config.user), tls: { minVersion: 'TLSv1.2' }, auth: config.user ? { user: config.user, pass: config.password } : undefined });
 }
 
 export async function sendAccessEmail(email: string, token: string, purpose: 'INVITE' | 'RESET'): Promise<void> {
-  const config = smtpConfig();
+  const config = await smtpConfig();
   const url = new URL('/establecer-password', config.baseUrl);
   url.searchParams.set('token', token);
   const invite = purpose === 'INVITE';
@@ -90,8 +65,9 @@ export async function sendAccessEmail(email: string, token: string, purpose: 'IN
 }
 
 export async function sendConfiguredTestEmail(): Promise<string> {
-  const config = smtpConfig();
-  const recipient = config.user || config.from;
+  const config = await smtpConfig();
+  const recipient = z.email().safeParse(config.user).success ? config.user : addressparser(config.from, { flatten: true })[0]?.address;
+  if (!recipient) throw new Error('El remitente SMTP no es válido.');
   const text = 'Este mensaje confirma que el correo de Valweb está configurado y pudo enviar desde Ajustes generales.';
   const html = `<!doctype html><html lang="es"><body style="margin:0;padding:36px 16px;background:#f5f7fa;color:#002a45;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td align="center"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;"><tr><td style="padding:0 8px 20px;color:#002a45;font-size:21px;font-weight:bold;">Valweb <span style="color:#5e6e80;font-size:11px;font-weight:normal;">by Computer Forms</span></td></tr><tr><td style="padding:32px;background:#fff;border:1px solid #e2e8ef;border-radius:12px;"><h1 style="margin:0 0 14px;font-size:24px;">Prueba de correo</h1><p style="margin:0;color:#5e6e80;font-size:15px;line-height:1.7;">${text}</p></td></tr><tr><td style="padding:18px 8px 0;color:#5e6e80;font-size:12px;">Valweb · Computer Forms</td></tr></table></td></tr></table></body></html>`;
   await createSmtpTransport(config).sendMail({ from: config.from, to: recipient, subject: 'Prueba de correo de Valweb', text, html });

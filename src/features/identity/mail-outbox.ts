@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { prisma } from '../../lib/prisma';
-import { decryptAccessToken, encryptAccessToken, sendAccessEmail } from './mail';
+import { decryptSecret as decryptAccessToken, encryptSecret as encryptAccessToken } from '../../lib/secrets';
+import { sendAccessEmail } from './mail';
 import { hashAccessToken } from './tokens';
 
 async function claimNext() {
